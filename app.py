@@ -1,8 +1,14 @@
-"""Single-user loopback demo, deliberately serial to avoid workbook write races."""
+"""Single-user loopback demo.
+
+Connections are handled on threads so that one idle browser connection (e.g. a preconnect)
+cannot stall the server, while all workbook/history access goes through one lock to avoid
+workbook write races.
+"""
 import argparse
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
+import threading
 from urllib.parse import urlparse, parse_qs
 
 from core import BASE, DemoStore
@@ -10,6 +16,7 @@ from core import BASE, DemoStore
 def create_server(port=8765, storage=None):
     store = DemoStore(storage or BASE / "runtime")
     token = secrets.token_urlsafe(32)
+    lock = threading.Lock()   # store 접근은 한 번에 하나 — 실행별 워크북·이력 DB 쓰기 경합 방지
 
     class Handler(BaseHTTPRequestHandler):
         def send(self, data, content_type="application/json; charset=utf-8", status=200, download=False):
@@ -37,26 +44,29 @@ def create_server(port=8765, storage=None):
                 static = {"/":("static/index.html","text/html; charset=utf-8"),
                           "/app.js":("static/app.js","text/javascript; charset=utf-8"),
                           "/style.css":("static/style.css","text/css; charset=utf-8"),
-                          "/plan.md":("docs/학습계획.md","text/plain; charset=utf-8"),
-                          "/readme.md":("README.md","text/plain; charset=utf-8"),
-                          "/script.md":("docs/시연대본.md","text/plain; charset=utf-8")}
+                          "/readme.md":("README.md","text/plain; charset=utf-8")}
                 if url.path in static:
                     file, mime = static[url.path]
                     return self.send((BASE/file).read_bytes(),mime)
                 if url.path == "/api/config":
-                    return self.send({"token":token, "mode":"offline_fixture", "app":"macro-career-lab-v1"})
-                if url.path == "/api/plan":
-                    return self.send((BASE/"data/plan.json").read_bytes())
+                    return self.send({"token":token, "mode":"offline_fixture", "app":"macro-notes-demo-v1"})
                 if url.path == "/api/history":
-                    return self.send(store.history())
+                    with lock:
+                        runs = store.history()
+                    return self.send(runs)
                 if url.path == "/api/evidence":
                     path = BASE/"evidence/results.json"
                     return self.send(json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"cases":[],"notice":"검증 결과가 아직 없습니다."})
                 if url.path in {"/api/state","/download"}:
                     run_id = parse_qs(url.query).get("id",[""])[0]
+                    with lock:
+                        if url.path == "/api/state":
+                            data = store.state(run_id)
+                        else:
+                            data = (store.directory(run_id)/"demo.xlsx").read_bytes()
                     if url.path == "/api/state":
-                        return self.send(store.state(run_id))
-                    return self.send((store.directory(run_id)/"demo.xlsx").read_bytes(),
+                        return self.send(data)
+                    return self.send(data,
                                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",download=True)
                 return self.send({"error":"해당 페이지가 없습니다."},status=404)
             except (ValueError, FileNotFoundError, KeyError) as exc:
@@ -75,13 +85,16 @@ def create_server(port=8765, storage=None):
                 if not isinstance(body,dict):
                     raise ValueError("JSON 객체가 필요합니다.")
                 route = urlparse(self.path).path
-                if route == "/api/run":
-                    result = store.run(body.get("scenario","baseline"))
-                elif route == "/api/review":
-                    result = store.review(body.get("id"),body.get("score"))
-                elif route == "/api/reapply":
-                    result = store.reapply(body.get("id"))
-                else:
+                with lock:
+                    if route == "/api/run":
+                        result = store.run(body.get("scenario","baseline"))
+                    elif route == "/api/review":
+                        result = store.review(body.get("id"),body.get("score"))
+                    elif route == "/api/reapply":
+                        result = store.reapply(body.get("id"))
+                    else:
+                        result = None
+                if result is None:
                     return self.send({"error":"지원하지 않는 동작입니다."},status=404)
                 self.send(result)
             except (ValueError,KeyError,TypeError) as exc:
@@ -89,7 +102,7 @@ def create_server(port=8765, storage=None):
             except Exception:
                 self.send({"error":"실행 실패. 로컬 실행 로그와 파일이 열려 있는지 확인하세요."},status=500)
 
-    return HTTPServer(("127.0.0.1",port),Handler)
+    return ThreadingHTTPServer(("127.0.0.1",port),Handler)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

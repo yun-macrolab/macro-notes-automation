@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-09-27T23:21:11",
-  "seconds": 9.67,
-  "passed": 21,
-  "total": 21,
+  "generated_at": "2026-09-28T00:31:15",
+  "seconds": 5.847,
+  "passed": 22,
+  "total": 22,
   "cases": [
     {
       "name": "정상 예시 8건 집계",
@@ -137,6 +137,12 @@
       "passed": true
     },
     {
+      "name": "유휴 연결이 있어도 요청 처리",
+      "expected": 200,
+      "actual": 200,
+      "passed": true
+    },
+    {
       "name": "워크북 다운로드는 유효 ZIP 서명",
       "expected": true,
       "actual": true,
@@ -144,13 +150,13 @@
     }
   ],
   "engine_sha256": {
-    "append_news.py": "7244541288d54b0a38e77907b377ed4e7e0670415236989a48f7a602d6e3736a",
-    "draft_apply.py": "a1e28f437f16988ce40aeb9e46db1c748933daeedb84b4f530e21bca4830e6f8",
-    "migrate_v2.py": "226432d362459d3030f3a0b102e8f60670027030fec8e8bfe4b24f4f629420d0",
-    "rollup_analysis.py": "0e57ba2bbe8b0f1a3ae4f80210cc49e16703c3c4b5b35237718660a95613708c",
-    "safe_io.py": "c2d61af1bf6e926b91fe4cd948991ccad0d3a1f3772b41f957805d51efc0e921",
-    "sheet_v2.py": "13c8b43b16a753a087e28875d79b916321d4396d2a3c4b9f7bf0d77ff6a31a1a",
-    "update_analysis.py": "53e884ef3d2f50dced59eb47430bc042dd9cb7980d50b1018b8f858169c607e2"
+    "append_news.py": "cdb62f529f794054392b78758cbfcd1fe22f019432074d9401794de0dd7d9375",
+    "draft_apply.py": "fe3f331c410701f2b58b28df88c7bbde57bede283ec454803211b1a8ce6f458f",
+    "migrate_v2.py": "92a54cc38e17cf1c85010de4a41098ffee696d1fc9c3ecbd770d20238cdd5cec",
+    "rollup_analysis.py": "874576b3ddf93abcd1e434953b2cdc974580ea09af534457f6fede62350a4a11",
+    "safe_io.py": "26b4cb42b01b2fd52afcbe569152d63d8f6a5713f0b996af94427f1cb1decc7a",
+    "sheet_v2.py": "9fb69e28cf988f7cc49c243ecba40172850e6a54a5d9ccabaa3f429724691762",
+    "update_analysis.py": "62554f7b900b02fec33a862d4bd2f1e22f36310655c410d614bd6f1b119330fa"
   },
   "scope": "가상 고정 입력의 결정론 규칙·파일 보존·로컬 API 검증. LLM 정확도·공격 전반·투자성과·시간절감은 측정하지 않음."
 }

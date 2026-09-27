@@ -4,7 +4,7 @@ $demoRoot = $PSScriptRoot
 $demoUrl = 'http://127.0.0.1:8765'
 try {
     $existing = Invoke-RestMethod -Uri "$demoUrl/api/config" -TimeoutSec 2
-    if ($existing.app -eq 'macro-career-lab-v1') {
+    if ($existing.app -eq 'macro-notes-demo-v1') {
         if (-not $NoBrowser) { Start-Process $demoUrl }
         exit 0
     }
@@ -13,8 +13,7 @@ try {
     if ($_.Exception.Message -like 'Port 8765*') { throw }
 }
 $pythonCandidates = @(
-    (Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313/python.exe'),
-    (Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe')
+    (Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313/python.exe')
 )
 $demoPython = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $demoPython) {
@@ -33,7 +32,7 @@ for ($attempt = 0; $attempt -lt 25; $attempt++) {
     Start-Sleep -Milliseconds 400
     try {
         $ready = Invoke-RestMethod -Uri "$demoUrl/api/config" -TimeoutSec 1
-        if ($ready.app -eq 'macro-career-lab-v1') { if (-not $NoBrowser) { Start-Process $demoUrl }; exit 0 }
+        if ($ready.app -eq 'macro-notes-demo-v1') { if (-not $NoBrowser) { Start-Process $demoUrl }; exit 0 }
     } catch { }
 }
 throw 'Server did not start. Inspect runtime/server.err.log. Port 8765 may be occupied.'

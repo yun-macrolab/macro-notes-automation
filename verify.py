@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import io
 import json
+import socket
 import tempfile
 import threading
 import time
@@ -80,6 +81,16 @@ def main():
             check("다른 Origin 변경 요청 차단",403,post("/api/reapply",{"id":run_id},origin="https://example.com")[0])
             check("정상 API 요청",200,post("/api/reapply",{"id":run_id})[0])
             check("API 점수 입력 검증",400,post("/api/review",{"id":run_id,"score":3})[0])
+            # 브라우저의 사전 연결처럼 요청 없이 열어 둔 연결이 있어도 다른 요청이 멈추지 않아야 한다
+            idle=socket.create_connection(("127.0.0.1",server.server_port))
+            try:
+                with urllib.request.urlopen(url+"/api/config",timeout=3) as response:
+                    status=response.status
+            except OSError:
+                status="응답 없음"
+            finally:
+                idle.close()
+            check("유휴 연결이 있어도 요청 처리",200,status)
             with urllib.request.urlopen(url+"/download?id="+run_id) as response:
                 check("워크북 다운로드는 유효 ZIP 서명",True,response.read(2)==b"PK")
         finally:

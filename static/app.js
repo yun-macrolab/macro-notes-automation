@@ -1,8 +1,6 @@
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let token='', current=null, plan=null;
-let completed={};
-try{completed=JSON.parse(localStorage.getItem('macro-career-progress-v1')||'{}');if(!completed||Array.isArray(completed)||typeof completed!=='object')completed={};}catch{completed={};}
+let token='', current=null;
 const names={baseline:'기본 초안',coerce:'범위·단위 오류',policy_gap:'정책 갭 +60bp'};
 function message(text,error=false){$('#message').textContent=text;$('#message').className=error?'error':'';}
 async function api(path,body){
@@ -56,25 +54,6 @@ document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener(
  document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-selected',String(b===button));});
  message(''); window.scrollTo(0,0);
 }));
-function progress(){
- if(!plan)return;
- const tasks=plan.weeks.flatMap(w=>w.tasks), count=tasks.filter(t=>completed[t.id]).length;
- $('#progress-text').textContent=`${count} / ${tasks.length} 과제`;
- $('#progress').max=tasks.length;$('#progress').value=count;
-}
-function renderPlan(data){
- plan=data;
- $('#weeks').innerHTML=data.weeks.map(w=>`<details class="week" ${w.week===1?'open':''}><summary>${w.week}주차. ${esc(w.title)}<span>${esc(w.start)} ~ ${esc(w.end)}</span></summary><p>산출물: ${esc(w.output)}</p><p class="gate"><strong>통과 기준</strong> · ${esc(w.gate)}</p>${w.tasks.map(t=>`<label class="task ${completed[t.id]?'done':''}"><input type="checkbox" data-task="${t.id}" ${completed[t.id]?'checked':''}><span class="date">${t.date} (${t.day})<br>${t.minutes}분</span><span class="text">${esc(t.text)}</span></label>`).join('')}<small>일요일 30분: 설명 가능한 것 3개, 막힌 것 1개를 적고 다음 주 진행 또는 반복을 결정합니다.</small></details>`).join('');
- document.querySelectorAll('[data-task]').forEach(input=>input.addEventListener('change',()=>{
- completed[input.dataset.task]=input.checked;input.closest('.task').classList.toggle('done',input.checked);
- try{localStorage.setItem('macro-career-progress-v1',JSON.stringify(completed));}catch{message('브라우저 저장에 실패했습니다. 진도 기록 내려받기로 보관하세요.',true);}
- progress();
- }));progress();
-}
-$('#export-progress').addEventListener('click',()=>{
- const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),plan_start:plan.start,completed},null,2)],{type:'application/json'});
- const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='learning-progress.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
-});
 function renderEvidence(data){
  $('#evidence-total').textContent=`검증 ${data.passed??0} / ${data.total??0} 통과`;
  $('#evidence-time').textContent=data.generated_at?`실행 ${data.generated_at} · 전체 ${data.seconds}초`:data.notice;
@@ -84,9 +63,9 @@ function renderEvidence(data){
 async function init(){
  try{
  token=(await api('/api/config')).token;
- const results=await Promise.all([api('/api/plan'),api('/api/evidence'),history()]);
- renderPlan(results[0]);renderEvidence(results[1]);
- const latest=results[2].find(r=>r.status==='ok');if(latest)render(await api('/api/state?id='+latest.id));
+ const results=await Promise.all([api('/api/evidence'),history()]);
+ renderEvidence(results[0]);
+ const latest=results[1].find(r=>r.status==='ok');if(latest)render(await api('/api/state?id='+latest.id));
  }catch(error){message('초기화 실패: '+error.message+' · 로컬 서버 실행 상태를 확인하세요.',true);}
 }
 init();
