@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>채권 리서치 검토실 · 준비 노트</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>매크로 기록 자동화 · 학습 노트</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body>
-<aside class="sidebar"><a class="brand" href="/">채권 리서치<br><strong>검토실</strong><span>개인 프로젝트 / 포트폴리오</span></a>
-<nav aria-label="주요 메뉴"><button class="nav active" data-tab="demo" aria-selected="true">리서치 데모</button><button class="nav" data-tab="plan" aria-selected="false">16주 준비 계획</button><button class="nav" data-tab="evidence" aria-selected="false">검증과 설명</button></nav>
+<aside class="sidebar"><a class="brand" href="/">매크로 기록<br><strong>자동화</strong><span>뉴스 · 판단 · 복기</span></a>
+<nav aria-label="주요 메뉴"><button class="nav active" data-tab="demo" aria-selected="true">리서치 데모</button><button class="nav" data-tab="plan" aria-selected="false">16주 학습 계획</button><button class="nav" data-tab="evidence" aria-selected="false">검증과 설명</button></nav>
 <div class="side-note"><span class="dot"></span> 로컬 시연 환경<p>가상 뉴스 · 고정 초안<br>외부 LLM 호출 없음</p><a href="/readme.md" target="_blank">실행 안내 읽기</a></div></aside>
 <main>
 <div id="message" role="status" aria-live="polite"></div>
@@ -23,11 +23,11 @@
 <section class="history"><div class="section-title"><h2>실행 이력</h2><button id="refresh">새로고침</button></div><div id="history-list"></div></section>
 </section>
 <section id="plan" class="page hidden"><header><div><p class="eyebrow">한 주에 하나씩 직접 만들기</p><h1>16주, 설명할 수 있는 코드로.</h1><p class="lede">평일 90분 · 토요일 3시간 · 일요일 회고 30분. 통과 기준에 맞춰 속도를 조절합니다.</p></div><a class="button" href="/plan.md" target="_blank">상세 계획 원문</a></header>
-<div class="notice">2026.09.28 시작을 가정한 학습 일정입니다. 지원 마감은 미정입니다. 완료 체크는 학습 기록이며, 기술 습득을 자동으로 증명하지 않습니다.</div>
+<div class="notice">2026.09.28 시작을 가정한 학습 일정입니다. 완료 체크는 학습 기록이며, 기술 습득을 자동으로 증명하지 않습니다.</div>
 <div class="plan-tools"><div><strong id="progress-text">0 / 96 과제</strong><progress id="progress" max="96" value="0"></progress></div><button id="export-progress">진도 기록 내려받기</button><small>체크는 이 브라우저에 저장됩니다. 포트·브라우저가 바뀌면 별도 기록입니다.</small></div>
 <div class="first-task"><div><h2>오늘의 첫 과제</h2><p>데모에서 점수를 +1.5로 바꾸고 재실행하세요.<br>이후 <code>exercises/exercise01.py</code>의 작은 검사 함수를 직접 채웁니다.</p></div><p>금리상방 → 양수<br>금리하방 → 음수<br>중립 → 0</p></div><div id="weeks"></div></section>
 <section id="evidence" class="page hidden"><header><div><p class="eyebrow">기능보다 증거를 먼저</p><h1>무엇을 확인했는가.</h1><p class="lede">검증 결과와 아직 증명하지 않은 범위를 함께 보여줍니다.</p></div><a class="button" href="/script.md" target="_blank">3~5분 시연 대본</a></header>
 <div class="evidence-intro"><div><h2 id="evidence-total">검증 결과 불러오는 중</h2><p id="evidence-time"></p><p id="evidence-scope"></p></div><div><h3>이 데모가 아직 하지 않는 일</h3><p>실시간 뉴스 수집, LLM 분류, RAG, MCP, 다중 사용자 인증, 분산 작업 큐, 투자성과 검증은 앞으로 구현·평가할 항목입니다.</p></div></div>
 <div class="table-scroll"><table><thead><tr><th>검증 항목</th><th>기대</th><th>실제</th><th>결과</th></tr></thead><tbody id="checks"></tbody></table></div>
 <article class="explain"><h2>설명 연습 질문</h2><ol><li>뉴스의 강도와 듀레이션 점수는 왜 부호가 반대인가요?</li><li>하우스 의견을 왜 점수에 더하지 않나요?</li><li>정책 수치가 없어서 0인 것과 중립 판단은 무엇이 다른가요?</li><li>사람이 수정한 칸을 어떻게 발견하고 보존하나요?</li><li>현재 구현의 어느 부분을 직접 설명·수정할 수 있나요?</li></ol></article>
-</section><footer>개인 학습·시연 프로젝트 · 특정 회사의 공식 서비스 또는 채용 과제가 아닙니다.</footer></main></body></html>
+</section><footer>매크로 관심에서 시작한 개인 기록 자동화 · 가상 자료로 보는 작업 흐름</footer></main></body></html>

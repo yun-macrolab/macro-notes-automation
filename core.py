@@ -69,7 +69,7 @@ def make_workbook(path):
     nd = wb.active
     nd.title = "News DB"
     ws = wb.create_sheet("Analysis")
-    nd["A1"] = "가상 예시 데이터 · 채용 포트폴리오 시연 전용"
+    nd["A1"] = "가상 예시 데이터 · 매크로 기록 자동화 시연"
     headers = ["날짜", "요인", "지역", "핵심키워드", "제목", "핵심내용", "방향성", "강도", "출처/링크", "유형"]
     for col, header in enumerate(headers, 1):
         nd.cell(4, col, header)
@@ -78,7 +78,7 @@ def make_workbook(path):
     table = Table(displayName="NewsDB", ref="A4:J5")
     table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
     nd.add_table(table)
-    ws["B1"] = "채권 리서치 검토 · 가상 예시"
+    ws["B1"] = "매크로 기록 자동화 · 가상 예시"
     ws["D3"] = "【금주 결론】 시연용 초안 — 실제 투자 판단이 아님"
     for r in sv.ROWS:
         ws.cell(r, 2, sv.ROW_LABEL[r])

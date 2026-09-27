@@ -37,7 +37,7 @@ def create_server(port=8765, storage=None):
                 static = {"/":("static/index.html","text/html; charset=utf-8"),
                           "/app.js":("static/app.js","text/javascript; charset=utf-8"),
                           "/style.css":("static/style.css","text/css; charset=utf-8"),
-                          "/plan.md":("docs/준비계획.md","text/plain; charset=utf-8"),
+                          "/plan.md":("docs/학습계획.md","text/plain; charset=utf-8"),
                           "/readme.md":("README.md","text/plain; charset=utf-8"),
                           "/script.md":("docs/시연대본.md","text/plain; charset=utf-8")}
                 if url.path in static:
