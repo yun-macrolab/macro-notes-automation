@@ -1,0 +1,156 @@
+{
+  "generated_at": "2026-09-26T16:07:28",
+  "seconds": 11.536,
+  "passed": 21,
+  "total": 21,
+  "cases": [
+    {
+      "name": "정상 예시 8건 집계",
+      "expected": 8,
+      "actual": 8,
+      "passed": true
+    },
+    {
+      "name": "의견은 뉴스 참고 점수에서 제외",
+      "expected": -1.0,
+      "actual": -1.0,
+      "passed": true
+    },
+    {
+      "name": "정책 갭 없으면 제안한 -1.5를 버림",
+      "expected": 0.0,
+      "actual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "TP 수치 없으면 제안한 -1을 버림",
+      "expected": 0.0,
+      "actual": 0.0,
+      "passed": true
+    },
+    {
+      "name": "결측 정책·TP를 별도로 표시",
+      "expected": 3,
+      "actual": 3,
+      "passed": true
+    },
+    {
+      "name": "채점 확정은 자동 실행으로 바뀌지 않음",
+      "expected": false,
+      "actual": false,
+      "passed": true
+    },
+    {
+      "name": "사용자가 고친 G8은 재실행 후 보존",
+      "expected": 1.5,
+      "actual": 1.5,
+      "passed": true
+    },
+    {
+      "name": "변경 칸 잠금 기록",
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "name": "동일 입력 묶음 재실행의 중복 추가 방지",
+      "expected": 8,
+      "actual": 8,
+      "passed": true
+    },
+    {
+      "name": "검토와 재실행 이력 기록",
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "name": "범위·단위 보정",
+      "expected": [
+        0.5,
+        -2.0
+      ],
+      "actual": [
+        0.5,
+        -2.0
+      ],
+      "passed": true
+    },
+    {
+      "name": "정책 갭 +60bp 재계산",
+      "expected": [
+        2.0,
+        -2.0
+      ],
+      "actual": [
+        2.0,
+        -2.0
+      ],
+      "passed": true
+    },
+    {
+      "name": "잘못된 사용자 점수 5종 거절",
+      "expected": 5,
+      "actual": 5,
+      "passed": true
+    },
+    {
+      "name": "방향성·강도 부호 불일치 거절",
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "name": "허용되지 않은 파일 경로 접근 거절",
+      "expected": true,
+      "actual": true,
+      "passed": true
+    },
+    {
+      "name": "DB 이력 재시작 후 유지",
+      "expected": 3,
+      "actual": 3,
+      "passed": true
+    },
+    {
+      "name": "토큰 없는 변경 요청 차단",
+      "expected": 403,
+      "actual": 403,
+      "passed": true
+    },
+    {
+      "name": "다른 Origin 변경 요청 차단",
+      "expected": 403,
+      "actual": 403,
+      "passed": true
+    },
+    {
+      "name": "정상 API 요청",
+      "expected": 200,
+      "actual": 200,
+      "passed": true
+    },
+    {
+      "name": "API 점수 입력 검증",
+      "expected": 400,
+      "actual": 400,
+      "passed": true
+    },
+    {
+      "name": "워크북 다운로드는 유효 ZIP 서명",
+      "expected": true,
+      "actual": true,
+      "passed": true
+    }
+  ],
+  "engine_sha256": {
+    "append_news.py": "7244541288d54b0a38e77907b377ed4e7e0670415236989a48f7a602d6e3736a",
+    "draft_apply.py": "a1e28f437f16988ce40aeb9e46db1c748933daeedb84b4f530e21bca4830e6f8",
+    "migrate_v2.py": "226432d362459d3030f3a0b102e8f60670027030fec8e8bfe4b24f4f629420d0",
+    "rollup_analysis.py": "0e57ba2bbe8b0f1a3ae4f80210cc49e16703c3c4b5b35237718660a95613708c",
+    "safe_io.py": "c2d61af1bf6e926b91fe4cd948991ccad0d3a1f3772b41f957805d51efc0e921",
+    "sheet_v2.py": "13c8b43b16a753a087e28875d79b916321d4396d2a3c4b9f7bf0d77ff6a31a1a",
+    "update_analysis.py": "53e884ef3d2f50dced59eb47430bc042dd9cb7980d50b1018b8f858169c607e2"
+  },
+  "scope": "가상 고정 입력의 결정론 규칙·파일 보존·로컬 API 검증. LLM 정확도·공격 전반·투자성과·시간절감은 측정하지 않음."
+}
