@@ -48,7 +48,9 @@ jobs:
           if [ "$actual" != "$PYODIDE_SHA512" ]; then echo "::error::Pyodide 해시 불일치: $actual"; exit 1; fi
           tar -xzf .build/pyodide.tgz -C .build/pyodide
       - name: 휠 받기(해시 확인)
-        run: python -m pip download --no-deps --only-binary=:all: --require-hashes -r web/requirements-web.txt -d .build/wheels
+        run: |
+          python -m pip download --no-deps --only-binary=:all: --require-hashes \
+            -r web/requirements-web.txt -d .build/wheels
       - name: 정적 사이트 조립
         run: python -X utf8 web/build.py --pyodide .build/pyodide/package --wheels .build/wheels --out _site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
