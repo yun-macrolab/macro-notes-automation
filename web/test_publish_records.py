@@ -181,6 +181,16 @@ class Publish(unittest.TestCase):
         self.assertEqual([c for c in github.calls if c[0] == "PATCH"], [("PATCH", "/git/refs/heads/main")] * 2)
         self.assertEqual(sorted(github.files), ["records/2026-09-14.json", "records/2026-09-21.json"])
 
+    def test_unexpected_error_is_logged(self):
+        collect = pub.collect
+        pub.collect = lambda *_: (_ for _ in ()).throw(PermissionError("폴더를 읽을 권한 없음"))
+        try:
+            code, out = self.run_main("--yes", github=FakeGitHub())
+        finally:
+            pub.collect = collect
+        self.assertEqual(code, 1)                                       # 예약 작업 창(-Yes)이 실패 알림을 띄운다
+        self.assertIn("예상하지 못한 문제", (pub.HOME / "publish.log").read_text(encoding="utf-8"))
+
     def test_out_folder(self):
         code, out = self.run_main("--out", str(self.work / "out"), github=FakeGitHub())
         self.assertEqual(code, 0, out)

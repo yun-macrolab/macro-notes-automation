@@ -11,6 +11,7 @@
 #   deploy  조립한 _site/만 Pages로. 처음 한 번 Settings → Pages → Source를 "GitHub Actions"로 켜야 한다.
 #
 # 액션은 macro-regime-check와 같은 커밋 SHA로 고정한다. 올릴 때는 SHA와 주석의 버전을 함께 바꾼다.
+# 실행 환경은 ubuntu-24.04로 고정한다(ubuntu-latest는 2026-10-19부터 Ubuntu 26으로 바뀐다). 올릴 때는 검사가 통과하는지 보고 바꾼다.
 
 name: pages
 
@@ -32,7 +33,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,7 +67,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       pages: write

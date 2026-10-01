@@ -93,9 +93,9 @@ Windows 실행 파일, 종료 방법, 포트 변경은 [실행 안내](docs/실�
 
 1. **GitHub 토큰(한 번)**: GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token. Repository access는 **Only select repositories → macro-notes-automation**, Repository permissions는 **Contents: Read and write**만 줍니다.
 2. **처음 실행**: 저장소 폴더의 `Publish-Records.bat`을 더블클릭하고 주간 기록 폴더 경로와 토큰을 붙여 넣습니다. 둘 다 이 PC의 `사용자 폴더\.macro-notes\`에 기억합니다. 주마다 결과(새로 올림·바뀜·그대로·건너뜀과 이유)를 보여 주고, `y`를 누르면 올립니다.
-3. **매일 자동**: 명령 프롬프트에서 `Publish-Records.bat -Schedule`(기본 매일 21:00, `-At 07:30`처럼 바꿈). 바뀐 주가 없으면 아무것도 하지 않고, 실행 기록은 `.macro-notes\publish.log`에 남습니다(토큰·걸린 말은 남기지 않음). 끄기는 `Publish-Records.bat -Unschedule`.
+3. **매일 자동**: 명령 프롬프트에서 `Publish-Records.bat -Schedule`(기본 매일 21:00, `-At 07:30`처럼 바꿈). 그 시각에 PC가 꺼져 있었으면 켜진 뒤 실행하고, 노트북 배터리로도 돕니다. 바뀐 주가 없으면 아무것도 하지 않습니다. 실패하면(토큰 만료 등) 알림 창을 띄우고, 실행 기록은 `.macro-notes\publish.log`에 남습니다(토큰·걸린 말은 남기지 않음). 끄기는 `Publish-Records.bat -Unschedule`.
 
-미리 보기는 `Publish-Records.bat -DryRun`, 검사어는 `.macro-notes\check-words.txt`(한 줄에 하나)입니다. 토큰이 만료되면 `.macro-notes\token.txt`를 지우고 다시 실행하면 새 토큰을 묻습니다.
+미리 보기는 `Publish-Records.bat -DryRun`, 검사어는 `.macro-notes\check-words.txt`(한 줄에 하나)입니다. Fine-grained 토큰은 만료일이 있으니 길게 잡아 두고, 만료되면 `.macro-notes\token.txt`를 지우고 다시 실행해 새 토큰을 넣습니다. 이 토큰은 저장소 파일을 고칠 수 있으므로 다른 곳에 붙여 넣지 말고, PC를 바꾸거나 잃어버리면 GitHub에서 바로 폐기합니다.
 
 ### 내 파일
 

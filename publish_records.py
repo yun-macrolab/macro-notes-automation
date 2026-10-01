@@ -267,6 +267,10 @@ def main(argv=None):
         print(f"올리지 못했습니다: {error}", file=sys.stderr)
         log(f"실패: {error}")
         return 1
+    except Exception as error:          # 예약 작업은 창이 숨겨져 있으니 예상하지 못한 문제도 기록을 남긴다
+        print(f"올리지 못했습니다(예상하지 못한 문제): {error!r}", file=sys.stderr)
+        log(f"실패(예상하지 못한 문제): {error!r}")
+        return 1
 
 
 def run(args, interactive):
