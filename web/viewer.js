@@ -3,6 +3,7 @@
 // Chrome·Edge는 파일 핸들을 기억해 3초마다 수정 시각을 확인하고, 다른 브라우저는 파일을 다시 고를 때 읽는다.
 // 기록을 읽는 엔진(약 14MB)은 내 파일을 쓸 때만 내려받는다. 공개 기록은 JSON만 받는다.
 // '공개본 만들기'는 화면에 띄운 내 기록에서 정해 둔 칸만 뽑아 검사한 뒤 JSON 파일로 내려받는다(올리는 것은 사람이 한다).
+// '여러 주 한 번에'는 고른 주간 파일마다 같은 검사를 하고, 통과한 주만 zip 하나로 묶어 내려받는다.
 "use strict";
 const $ = selector => document.querySelector(selector);
 const POLL_MS = 3000;
@@ -10,6 +11,8 @@ const DB = { name: "macro-notes-viewer", store: "handles", key: "last" };
 const WORDS_KEY = "macro-notes-viewer.check-words";
 const PUBLIC_SCHEMA = "macro-notes-public/1";
 const RECORD_FILE = /^\d{4}-\d{2}-\d{2}\.json$/;
+const BULK_MAX = 300;     // 폴더째 고를 때 읽을 엑셀 파일 수 상한
+const SKIP_REASONS = { v1: "예전 형식(v1)", no_week: "주간 날짜 없음(I1 칸)", not_record: "기록 워크북 아님", broken: "읽지 못함", blocked: "검사에 걸림" };
 const canWatch = typeof window.showOpenFilePicker === "function";
 
 let worker = null;
@@ -32,6 +35,7 @@ let tab = "local";        // 화면에 그리는 쪽: "public" | "local"
 let data = null;          // 지금 화면에 그린 기록(publicData 또는 localData)
 let reading = false;
 let exporting = false;
+let bulkRunning = false;
 let timer = null;
 let filterKind = "all";
 
@@ -260,7 +264,6 @@ async function reopen() {
 async function closeFile() {
   forgetHandle();
   remembered = lastFile = localData = null;
-  closeExport();
   show();
   // 기억해 둔 위치를 다 지운 뒤에 알린다(바로 새로고침해도 다시 열리지 않게).
   await idb("readwrite", store => store.delete(DB.key)).catch(() => {});
@@ -316,7 +319,7 @@ async function loadIndex() {
 function publicOptions() {
   $("#public-week").replaceChildren(...publicList.map((entry, index) => el("option", {
     value: entry.file,
-    text: `${entry.start} ~ ${String(entry.end).slice(5)}${index === 0 ? " · 최신" : ""}${entry.confirmed ? "" : " · 확정 전"}`,
+    text: `${entry.start} ~ ${String(entry.end).slice(5)}${index === 0 ? " · 최신" : ""}${entry.confirmed === false ? " · 확정 전" : ""}`,
   })));
 }
 
@@ -417,25 +420,17 @@ function exportScope() {
     : "Analysis I1 칸에 주간 날짜가 없어 공개본을 만들 수 없습니다.";
 }
 
-function toggleExport() {
-  const panel = $("#export-panel");
-  const open = panel.classList.contains("hidden");
-  panel.classList.toggle("hidden", !open);
+function toggleExport(open = $("#export-panel").classList.contains("hidden")) {
+  $("#export-panel").classList.toggle("hidden", !open);
   $("#export").setAttribute("aria-expanded", String(open));
-  if (open) {
-    exportScope();
-    $("#check-words").focus();
-  }
+  if (open) exportScope();
 }
 
-function closeExport() {
-  $("#export-panel").classList.add("hidden");
-  $("#export").setAttribute("aria-expanded", "false");
-  $("#export-result").replaceChildren();
-}
+const checkWords = () => $("#check-words").value.split("\n").map(word => word.trim()).filter(Boolean);
+const confirmText = value => (value === true ? "채점 확정" : value === false ? "확정 전" : "확정 표시 없음");
 
-function download(name, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+function download(name, content, type = "application/json") {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const link = el("a", { href: url, download: name, class: "hidden" });
   document.body.append(link);
   link.click();
@@ -469,9 +464,8 @@ async function runExport() {
   buttons();
   const result = $("#export-result");
   result.replaceChildren(el("p", { class: "help", text: "검사하고 있습니다." }));
-  const words = $("#check-words").value.split("\n").map(word => word.trim()).filter(Boolean);
   try {
-    const reply = await ask({ type: "public", text: JSON.stringify(localData), words });
+    const reply = await ask({ type: "public", text: JSON.stringify(localData), words: checkWords() });
     const body = JSON.parse(reply.text);
     if (!reply.ok) {
       result.replaceChildren(blockedView(body));
@@ -488,13 +482,133 @@ async function runExport() {
   }
 }
 
+/* ---------- 여러 주 한 번에 ---------- */
+// 엑셀 기록 파일만 고른다(엑셀이 열어 둔 동안 생기는 ‘~$’ 잠금 파일은 뺀다).
+const isBook = name => /\.(xlsx|xlsm)$/i.test(name) && !name.startsWith("~$");
+const bulkItems = files => [...files].filter(file => isBook(file.name))
+  .map(file => ({ file, label: file.webkitRelativePath || file.name }));
+
+// 끌어다 놓은 폴더(Chrome·Edge)를 하위 폴더까지 훑는다.
+async function directoryItems(directory, prefix, out = []) {
+  for await (const entry of directory.values()) {
+    if (out.length >= BULK_MAX) break;
+    if (entry.kind === "directory") await directoryItems(entry, prefix + entry.name + "/", out);
+    else if (isBook(entry.name)) out.push({ file: await entry.getFile(), label: prefix + entry.name });
+  }
+  return out;
+}
+
+// 같은 주 파일이 여럿이면 채점 확정한 파일, 그다음 최근에 저장한 파일을 쓴다.
+function preferred(a, b) {
+  const confirmed = row => row.record.state.confirmed === true;
+  if (confirmed(a) !== confirmed(b)) return confirmed(a);
+  return a.file.lastModified > b.file.lastModified;
+}
+
+async function runBulk(items) {
+  if (bulkRunning) return;
+  const result = $("#bulk-result");
+  if (!items.length) {
+    result.replaceChildren(el("div", { class: "export-blocked", role: "alert", text: "고른 것 중에 엑셀 기록 파일(.xlsx·.xlsm)이 없습니다." }));
+    return;
+  }
+  bulkRunning = true;
+  buttons();
+  const progress = el("p", { class: "help" });
+  result.replaceChildren(progress);
+  const words = checkWords();
+  const rows = [];
+  try {
+    for (const [index, item] of items.slice(0, BULK_MAX).entries()) {
+      progress.textContent = `${index + 1} / ${Math.min(items.length, BULK_MAX)} 확인하는 중 · ${item.label}`
+        + (engineReady ? "" : " (처음 한 번은 엔진을 준비하느라 10초 안팎 걸립니다)");
+      let reply;
+      try {
+        const bytes = await item.file.arrayBuffer();
+        reply = await ask({ type: "bulk", bytes, name: item.file.name, words }, [bytes]);
+      } catch (error) {
+        console.error(error);
+        reply = { ok: false, text: JSON.stringify({ reason: "broken", error: "파일을 읽지 못했습니다." }) };
+      }
+      const body = JSON.parse(reply.text);
+      rows.push(reply.ok ? { ...item, ok: true, text: reply.text, record: body } : { ...item, ok: false, ...body });
+    }
+    const chosen = new Map();
+    rows.filter(row => row.ok).forEach(row => {
+      const held = chosen.get(row.record.week.start);
+      if (!held || preferred(row, held)) chosen.set(row.record.week.start, row);
+    });
+    const picked = [...chosen.values()].sort((a, b) => b.record.week.start.localeCompare(a.record.week.start));
+    let zipName = null;
+    if (picked.length) {
+      progress.textContent = `공개본 ${picked.length}주를 zip으로 묶는 중`;
+      const reply = await ask({ type: "zip", text: JSON.stringify(picked.map(row => ({ name: row.record.week.start + ".json", file: row.text }))) });
+      if (!reply.ok) throw new Error("zip: " + reply.text);
+      const [first, last] = [picked[picked.length - 1].record.week.start, picked[0].record.week.start];
+      zipName = first === last ? `공개본_${first}.zip` : `공개본_${first}_${last}.zip`;
+      download(zipName, reply.bytes, "application/zip");
+    }
+    result.replaceChildren(bulkView(rows, picked, zipName));
+  } catch (error) {
+    console.error(error);
+    result.replaceChildren(el("div", { class: "export-blocked", role: "alert", text: "공개본을 만드는 중 문제가 생겼습니다. 다시 골라 주세요." }));
+  } finally {
+    bulkRunning = false;
+    buttons();
+  }
+}
+
+function bulkView(rows, picked, zipName) {
+  const used = new Set(picked);
+  const skipped = rows.filter(row => !row.ok).sort((a, b) => a.label.localeCompare(b.label));
+  const duplicates = rows.filter(row => row.ok && !used.has(row));
+  const head = zipName
+    ? el("div", { class: "export-done" },
+      el("strong", { text: `공개본 ${picked.length}주를 ${zipName}로 내려받았습니다.` }),
+      el("p", { text: `${picked[picked.length - 1].record.week.start} ~ ${picked[0].record.week.start} 주`
+        + (skipped.length ? ` · 건너뛴 파일 ${skipped.length}개` : "") + (duplicates.length ? ` · 같은 주라 뺀 파일 ${duplicates.length}개` : "") }),
+      el("ol", {},
+        el("li", { text: "zip을 풀고, 안의 .json 파일만 모두 고릅니다(폴더째 올리면 records 아래에 폴더가 생겨 배포 검사에서 거절됩니다)." }),
+        el("li", {}, el("a", { href: $("#export-panel").dataset.upload, target: "_blank", rel: "noopener", text: "records에 올리기 ↗" }),
+          "를 열어 끌어다 놓고 ‘Commit changes’를 누릅니다. 이미 있는 주는 새 내용으로 바뀝니다."),
+        el("li", { text: "1~2분 뒤 배포가 끝나면 ‘공개 기록’ 탭에서 주간을 골라 볼 수 있습니다." })))
+    : el("div", { class: "export-blocked", role: "alert", text: "공개본을 만들 수 있는 주간 파일이 없었습니다. 아래 표의 이유를 확인하세요." });
+  const table = el("div", { class: "table-scroll", role: "region", "aria-label": "파일별 결과", tabindex: "0" },
+    el("table", { class: "bulk-table" },
+      el("thead", {}, el("tr", {}, ...["주간", "파일", "뉴스", "듀레이션", "커브", "결과"].map(text => el("th", { scope: "col", text })))),
+      el("tbody", {}, ...[...picked, ...duplicates, ...skipped].map(row => bulkRow(row, used)))));
+  const blocked = skipped.filter(row => row.reason === "blocked");
+  const findings = blocked.length ? el("details", { class: "bulk-findings" },
+    el("summary", { text: `검사에 걸린 위치 · 파일 ${blocked.length}개` }),
+    ...blocked.map(row => el("div", {},
+      el("strong", { text: row.label }),
+      el("ul", {}, ...(row.findings || []).slice(0, 10).map(f => el("li", { text: `${f.place} — ${f.kind} ‘${f.text}’` })))))) : null;
+  return el("div", { class: "bulk-view" }, head, findings, table);
+}
+
+function bulkRow(row, used) {
+  const record = row.record;
+  const week = record ? record.week : row.week;
+  const state = record && record.state;
+  const status = !row.ok ? `건너뜀 · ${SKIP_REASONS[row.reason] || "읽지 못함"}`
+    : used.has(row) ? `포함 · ${confirmText(state.confirmed)}` : "같은 주의 다른 파일을 씀";
+  return el("tr", { class: row.ok && used.has(row) ? "" : "muted-row" },
+    el("td", { text: week ? `${week.start} ~ ${week.end.slice(5)}` : "—" }),
+    el("td", { class: "file", text: row.label }),
+    el("td", { text: record ? record.news.length + "건" : "—" }),
+    el("td", { text: state ? `${score(state.dur.total, 2)} ${state.dur.verdict}` : "—" }),
+    el("td", { text: state ? `${score(state.cur.total, 2)} ${state.cur.verdict}` : "—" }),
+    el("td", { text: status }));
+}
+
 /* ---------- 화면 ---------- */
 function buttons() {
   $("#open").disabled = reading;
   $("#reload").disabled = reading;
   $("#reload").classList.toggle("hidden", !handle);
-  $("#export").classList.toggle("hidden", !localData);
-  $("#export-run").disabled = exporting || !localData;
+  $("#export-one").classList.toggle("hidden", !localData);
+  $("#export-run").disabled = exporting || bulkRunning || !localData;
+  $("#bulk-pick").disabled = $("#bulk-folder-pick").disabled = bulkRunning;
   $("#close").classList.toggle("hidden", !localData && !remembered);
   $("#reopen").classList.toggle("hidden", !remembered || !!handle);
   if (remembered) $("#reopen").textContent = "지난 파일 다시 열기 · " + remembered.name;
@@ -583,16 +697,19 @@ function render() {
   const isPublic = tab === "public";
   $("#result").classList.remove("hidden");
   $("#week-label").textContent = week.start ? `기준 주간 ${week.start} ~ ${week.end}` : "기준 주간 정보 없음(Analysis I1 칸)";
-  $("#confirm-label").textContent = state.confirmed ? "채점 확정" : "확정 전 초안";
-  $("#state-badge").textContent = state.confirmed ? "채점 확정" : "확정 전";
-  $("#state-badge").className = "badge " + (state.confirmed ? "good" : "subtle");
+  // confirmed가 null이면 채점 확정 칸이 생기기 전(자동 초안 도입 전) 파일이다.
+  $("#confirm-label").textContent = state.confirmed === true ? "채점 확정"
+    : state.confirmed === false ? "확정 전 초안" : "확정 표시 없음(자동 초안 도입 전 파일)";
+  $("#state-badge").textContent = confirmText(state.confirmed);
+  $("#state-badge").className = "badge " + (state.confirmed === true ? "good" : "subtle");
   $("#dur-total").textContent = score(state.dur.total, 2);
   $("#dur-verdict").textContent = state.dur.verdict;
   $("#cur-total").textContent = score(state.cur.total, 2);
   $("#cur-verdict").textContent = state.cur.verdict;
   $("#news-week").textContent = week.start ? data.news.filter(n => inPeriod(n, "current")).length + "건" : "—";
   $("#news-total").textContent = isPublic ? "공개본에 실린 뉴스" : `전체 ${data.news.length}건`;
-  $("#edited").textContent = state.edited_n + "칸";
+  $("#edited").textContent = state.confirmed === null ? "—" : state.edited_n + "칸";
+  $("#edited-note").textContent = state.confirmed === null ? "자동 초안 도입 전 기록" : "자동 초안이 다시 덮지 않는 칸";
   $("#conclusion").textContent = data.conclusion || "아직 적지 않았습니다.";
   $("#week-filter-box").classList.toggle("hidden", isPublic);
   if (!isPublic) weekOptions();
@@ -646,9 +763,16 @@ $("#reload").addEventListener("click", async () => {
   }
 });
 $("#close").addEventListener("click", closeFile);
-$("#export").addEventListener("click", toggleExport);
+$("#export").addEventListener("click", () => toggleExport());
 $("#export-run").addEventListener("click", runExport);
 $("#check-words").addEventListener("input", saveWords);
+$("#bulk-pick").addEventListener("click", () => $("#bulk-files").click());
+$("#bulk-folder-pick").addEventListener("click", () => $("#bulk-folder").click());
+["#bulk-files", "#bulk-folder"].forEach(id => $(id).addEventListener("change", async event => {
+  const files = [...event.target.files];
+  event.target.value = "";
+  if (files.length) await runBulk(bulkItems(files));
+}));
 $("#picker").addEventListener("change", async event => {
   const file = event.target.files[0];
   event.target.value = "";
@@ -676,16 +800,24 @@ document.addEventListener("drop", async event => {
   if (![...event.dataTransfer.types].includes("Files")) return;
   event.preventDefault();
   document.body.classList.remove("dragging");
-  const item = [...event.dataTransfer.items].find(entry => entry.kind === "file");
-  const pendingHandle = item && typeof item.getAsFileSystemHandle === "function" ? item.getAsFileSystemHandle() : null;
-  const file = event.dataTransfer.files[0];
+  // 핸들은 이벤트 안에서 바로 받아야 한다(기다린 뒤에는 끌어다 놓은 항목에 접근할 수 없다).
+  const pendingHandles = [...event.dataTransfer.items].filter(entry => entry.kind === "file")
+    .map(entry => (typeof entry.getAsFileSystemHandle === "function" ? entry.getAsFileSystemHandle().catch(() => null) : null));
+  const files = [...event.dataTransfer.files];
   if (tab !== "local") showTab("local");
-  const dropped = pendingHandle ? await pendingHandle.catch(() => null) : null;
-  if (dropped && dropped.kind === "file") {
-    await useHandle(dropped);
-  } else if (file) {
+  const dropped = await Promise.all(pendingHandles);
+  const folders = dropped.filter(entry => entry && entry.kind === "directory");
+  // 파일 여러 개나 폴더를 끌어다 놓으면 '여러 주 한 번에'
+  if (files.length > 1 || folders.length) {
+    toggleExport(true);
+    let items = bulkItems(files);
+    for (const folder of folders) items = items.concat(await directoryItems(folder, folder.name + "/"));
+    await runBulk(items);
+  } else if (dropped[0] && dropped[0].kind === "file") {
+    await useHandle(dropped[0]);
+  } else if (files[0]) {
     forgetHandle();
-    await readFile(file);
+    await readFile(files[0]);
   }
 });
 

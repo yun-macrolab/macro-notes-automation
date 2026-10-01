@@ -1,8 +1,10 @@
 // 매크로 기록 보기 — 고른 기록 워크북을 브라우저 작업 스레드에서 읽는다(읽는 동안 화면이 멈추지 않게).
 // Pyodide(브라우저용 CPython)가 engine/의 읽기 함수와 web/workbook_view.py·public_record.py를 그대로 실행한다.
 // 파일은 이 스레드의 메모리에 잠시 올려 읽고 바로 지운다. 저장하거나 어디로도 보내지 않는다.
-//   { type: "read", bytes, name }   → 화면용 JSON
-//   { type: "public", text, words } → 공개본 JSON(검사에 걸리면 위치 목록). text는 화면에 띄운 자료.
+//   { type: "read", bytes, name }          → 화면용 JSON
+//   { type: "public", text, words }        → 공개본 JSON(검사에 걸리면 위치 목록). text는 화면에 띄운 자료.
+//   { type: "bulk", bytes, name, words }   → 워크북 하나의 공개본('여러 주 한 번에', 실패하면 이유)
+//   { type: "zip", text }                  → 검사를 통과한 공개본들을 묶은 zip 바이트
 import { loadPyodide } from "../pyodide/pyodide.mjs";
 
 const root = new URL("../", import.meta.url);
@@ -57,10 +59,19 @@ async function handle(message) {
     reply(message.id, publicRecord.public_json(message.text, JSON.stringify(message.words || [])));
     return;
   }
+  if (message.type === "zip") {
+    const result = publicRecord.bundle(message.text);
+    const bytes = result.toJs();
+    result.destroy();
+    postMessage({ id: message.id, ok: true, bytes });
+    return;
+  }
   const path = "/tmp/record" + (/\.xlsm$/i.test(message.name || "") ? ".xlsm" : ".xlsx");
   py.FS.writeFile(path, new Uint8Array(message.bytes));
   try {
-    reply(message.id, view.read_json(path));
+    reply(message.id, message.type === "bulk"
+      ? view.public_from_workbook(path, JSON.stringify(message.words || []))
+      : view.read_json(path));
   } finally {
     py.FS.unlink(path);
   }
@@ -71,7 +82,7 @@ let queue = Promise.resolve();
 onmessage = event => {
   queue = queue.then(() => handle(event.data)).catch(error => {
     console.error(error);
-    const text = event.data.type === "public" ? "공개본을 만드는 중 문제가 생겼습니다." : "기록 파일을 읽는 중 문제가 생겼습니다.";
-    postMessage({ id: event.data.id, ok: false, text: JSON.stringify({ error: text }) });
+    const text = event.data.type === "read" ? "기록 파일을 읽는 중 문제가 생겼습니다." : "공개본을 만드는 중 문제가 생겼습니다.";
+    postMessage({ id: event.data.id, ok: false, text: JSON.stringify({ reason: "broken", error: text }) });
   });
 };

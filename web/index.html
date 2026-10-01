@@ -34,7 +34,7 @@
       <button class="primary" id="open">기록 파일 열기</button>
       <button id="reopen" class="hidden">지난 파일 다시 열기</button>
       <button id="reload" class="hidden">지금 다시 읽기</button>
-      <button id="export" class="hidden" aria-expanded="false" aria-controls="export-panel">공개본 만들기</button>
+      <button id="export" aria-expanded="false" aria-controls="export-panel">공개본 만들기</button>
       <button id="close" class="hidden">닫기</button>
     </div>
     <input type="file" id="picker" accept=".xlsx,.xlsm" class="hidden" tabindex="-1" aria-hidden="true">
@@ -42,20 +42,31 @@
   <section class="export-panel hidden" id="export-panel" aria-labelledby="export-title" data-upload="https://github.com/yun-macrolab/macro-notes-automation/upload/main/records">
     <div class="export-text">
       <h2 id="export-title">공개본 만들기</h2>
-      <p id="export-scope"></p>
+      <p>주간 기록에서 화면에 보이는 칸만 뽑아 그 주 월요일 날짜 이름(예: 2026-09-28.json)의 파일로 만듭니다. 저장소의 records 폴더에 올리면 ‘공개 기록’ 탭에 실립니다.</p>
       <dl class="export-list">
         <dt>실림</dt><dd>그 주 날짜의 뉴스(제목·출처·분류·핵심내용), 점수·판정·근거·결론, 메모, FLAG</dd>
         <dt>빠짐</dt><dd>다른 주 뉴스, 숨김 장부 열, 시트 행 번호, 엑셀 문서 속성(작성자 등)</dd>
       </dl>
+      <label class="words-label" for="check-words">검사어 <small>(선택)</small></label>
+      <small id="check-words-help">실명·학교·회사처럼 공개본에 있으면 안 되는 말을 한 줄에 하나씩 적습니다. 이 브라우저에만 저장됩니다. 이메일 주소·전화번호·주민등록번호·PC 경로는 적지 않아도 검사하고, 걸린 주는 만들지 않습니다.</small>
+      <textarea id="check-words" rows="3" spellcheck="false" autocomplete="off" aria-describedby="check-words-help"></textarea>
     </div>
     <div class="export-form">
-      <label for="check-words">검사어</label>
-      <small id="check-words-help">실명·학교·회사처럼 공개본에 있으면 안 되는 말을 한 줄에 하나씩 적습니다. 이 브라우저에만 저장됩니다.</small>
-      <textarea id="check-words" rows="4" spellcheck="false" autocomplete="off" aria-describedby="check-words-help check-words-auto"></textarea>
-      <small id="check-words-auto">이메일 주소·전화번호·주민등록번호·PC 경로는 적지 않아도 검사합니다.</small>
-      <div class="run-actions"><button class="primary" id="export-run">검사하고 내려받기</button></div>
+      <div class="export-choice" id="export-one">
+        <h3>지금 연 파일</h3>
+        <p id="export-scope"></p>
+        <div class="run-actions"><button class="primary" id="export-run">검사하고 내려받기</button></div>
+      </div>
+      <div class="export-choice">
+        <h3>여러 주 한 번에</h3>
+        <p>지난 주간 파일을 여러 개 또는 폴더째 고르면(끌어다 놓아도 됩니다) 주마다 검사해 공개본을 만들고 zip 하나로 내려받습니다. 같은 주 파일이 여럿이면 채점 확정, 그다음 최근 저장한 파일 하나만 씁니다. 폴더째 고를 때 브라우저가 ‘업로드’ 확인을 묻지만, 파일은 이 브라우저 안에서만 읽습니다.</p>
+        <div class="run-actions"><button id="bulk-pick">파일 여러 개 고르기</button><button id="bulk-folder-pick">폴더째 고르기</button></div>
+        <input type="file" id="bulk-files" accept=".xlsx,.xlsm" multiple class="hidden" tabindex="-1" aria-hidden="true">
+        <input type="file" id="bulk-folder" webkitdirectory class="hidden" tabindex="-1" aria-hidden="true">
+      </div>
     </div>
     <div id="export-result" aria-live="polite"></div>
+    <div id="bulk-result" aria-live="polite"></div>
   </section>
 </div>
 <div id="empty" class="empty"><div class="empty-mark" aria-hidden="true">＋</div><h2>기록 파일을 열어 주세요.</h2><p>Analysis·News DB 시트가 있는 v2 기록 워크북을 엽니다.<br>파일을 이 화면에 끌어다 놓아도 됩니다.</p></div>
@@ -66,7 +77,7 @@
     <div><dt>듀레이션</dt><dd id="dur-total">—</dd><small id="dur-verdict"></small></div>
     <div><dt>커브</dt><dd id="cur-total">—</dd><small id="cur-verdict"></small></div>
     <div><dt>기준 주간 뉴스</dt><dd id="news-week">—</dd><small id="news-total"></small></div>
-    <div><dt>직접 고친 점수</dt><dd id="edited">—</dd><small>자동 초안이 다시 덮지 않는 칸</small></div>
+    <div><dt>직접 고친 점수</dt><dd id="edited">—</dd><small id="edited-note">자동 초안이 다시 덮지 않는 칸</small></div>
   </dl>
   <section class="conclusion" aria-labelledby="conclusion-title"><h2 id="conclusion-title">금주 결론</h2><p id="conclusion"></p></section>
   <div class="review-layout">

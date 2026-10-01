@@ -3,18 +3,23 @@
   python -X utf8 -m unittest discover -s web -p "test_*.py"
 """
 import copy
+import io
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "engine"), str(ROOT / "web")]
 
+import openpyxl  # noqa: E402
+
 from core import DemoStore  # noqa: E402
 import build  # noqa: E402
 import public_record as pr  # noqa: E402
+import sheet_v2 as sv  # noqa: E402
 import workbook_view  # noqa: E402
 
 
@@ -82,13 +87,31 @@ class PublicRecord(unittest.TestCase):
         ok, text = pr.public_json(json.dumps(self.data, ensure_ascii=False), json.dumps([word], ensure_ascii=False))
         self.assertFalse(ok)
         body = json.loads(text)
+        self.assertEqual((body["reason"], body["week"]["start"]), ("blocked", "2026-09-21"))
         self.assertTrue(body["findings"])
         self.assertTrue(all(f["kind"] == "검사어" and f["text"] == word for f in body["findings"]))
         self.assertIn("News DB", body["findings"][0]["place"])
         no_week = dict(self.data, week={"date": None, "start": None, "end": None})
         ok, text = pr.public_json(json.dumps(no_week, ensure_ascii=False))
         self.assertFalse(ok)
+        self.assertEqual(json.loads(text)["reason"], "no_week")
         self.assertIn("I1", json.loads(text)["error"])
+
+    def test_unknown_confirmation(self):
+        # 채점 확정 칸이 생기기 전(자동 초안 도입 전) 파일은 확정 여부를 알 수 없다 → None
+        state = dict(copy.deepcopy(self.data["state"]), confirmed=None)
+        record = self.record(state=state)
+        self.assertIsNone(record["state"]["confirmed"])
+        self.assertTrue(pr.validate(record))
+
+    def test_bundle(self):
+        ok, text = pr.public_json(json.dumps(self.data, ensure_ascii=False))
+        archive = zipfile.ZipFile(io.BytesIO(pr.bundle(json.dumps([{"name": "2026-09-21.json", "file": text}]))))
+        self.assertEqual(archive.namelist(), ["2026-09-21.json"])
+        self.assertEqual(json.loads(archive.read("2026-09-21.json"))["schema"], pr.SCHEMA)
+        for name, file in (("../x.json", text), ("2026-09-21.json", json.dumps({"schema": "other"}))):
+            with self.subTest(name), self.assertRaises(ValueError):
+                pr.bundle(json.dumps([{"name": name, "file": file}]))
 
     def test_validate_rejects(self):
         good = self.record()
@@ -167,6 +190,59 @@ class SiteRecords(unittest.TestCase):
                 with self.assertRaises(ValueError) as caught:
                     build.load_records(self.folder(files), ["홍길동"])
                 self.assertNotIn("홍길동", str(caught.exception))
+
+
+class BulkExport(unittest.TestCase):
+    """'여러 주 한 번에' — 워크북 하나씩 공개본으로(workbook_view.public_from_workbook)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="bulk_export_")
+        store = DemoStore(cls.tmp.name)
+        run_id = store.run()["run"]["id"]
+        cls.path = Path(cls.tmp.name) / run_id / "demo.xlsx"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def variant(self, name, cells):
+        wb = openpyxl.load_workbook(self.path)
+        for ref, value in cells.items():
+            wb["Analysis"][ref] = value
+        path = Path(self.tmp.name) / name
+        wb.save(path)
+        return str(path)
+
+    def test_v2_workbook(self):
+        ok, text = workbook_view.public_from_workbook(str(self.path))
+        self.assertTrue(ok)
+        record = json.loads(text)
+        self.assertEqual((record["week"]["start"], len(record["news"]), record["state"]["confirmed"]), ("2026-09-21", 8, False))
+
+    def test_file_before_draft_layout(self):
+        ok, text = workbook_view.public_from_workbook(self.variant("before_draft.xlsx", {sv.DRAFT_CELL: None}))
+        self.assertTrue(ok)
+        self.assertIsNone(json.loads(text)["state"]["confirmed"])
+
+    def test_skip_reasons(self):
+        broken = Path(self.tmp.name) / "broken.xlsx"
+        broken.write_bytes(b"not a workbook")
+        other = Path(self.tmp.name) / "other.xlsx"
+        openpyxl.Workbook().save(other)
+        cases = {"v1": self.variant("v1.xlsx", {sv.SCHEMA_CELL: None}),
+                 "no_week": self.variant("no_week.xlsx", {"I1": None}),
+                 "not_record": str(other), "broken": str(broken)}
+        for reason, path in cases.items():
+            with self.subTest(reason):
+                ok, text = workbook_view.public_from_workbook(path)
+                self.assertFalse(ok)
+                self.assertEqual(json.loads(text)["reason"], reason)
+
+    def test_check_words_still_block(self):
+        ok, text = workbook_view.public_from_workbook(str(self.path), json.dumps(["국채"], ensure_ascii=False))
+        self.assertFalse(ok)
+        self.assertEqual(json.loads(text)["reason"], "blocked")
 
 
 if __name__ == "__main__":

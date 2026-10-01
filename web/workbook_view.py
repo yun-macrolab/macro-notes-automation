@@ -11,6 +11,7 @@ import zipfile
 
 import openpyxl
 
+import public_record
 import sheet_v2 as sv
 from rollup_analysis import FACTORS, parse_date, week_bounds
 
@@ -55,6 +56,7 @@ def read(path):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb["Analysis"]
+        draft_layout = sv.has_draft_layout(ws)
         week = parse_date(ws["I1"].value)
         conclusion = _text(ws["D3"].value)
         digest = {r: _text(ws.cell(r, sv.COL["digest"]).value) for r in sv.ROWS}
@@ -66,6 +68,8 @@ def read(path):
         row["digest"] = digest[row["row"]]
         for key in ("note", "dur_tag", "cur_tag", "house"):
             row[key] = _text(row[key])
+    if not draft_layout:
+        state["confirmed"] = None   # 채점 확정 칸(C26)이 생기기 전(자동 초안 도입 전) 파일: 확정 여부를 알 수 없다
     start, end = week_bounds(week) if week else (None, None)
     return {
         "week": {"date": week and week.isoformat(), "start": start and start.isoformat(), "end": end and end.isoformat()},
@@ -91,3 +95,21 @@ def read_json(path):
         return failure("엑셀 파일을 읽지 못했습니다. 엑셀에서 저장하는 중이었다면 잠시 뒤 다시 읽습니다.")
     except Exception:
         return failure("기록 파일을 읽는 중 문제가 생겼습니다. 파일을 다시 열어 주세요.")
+
+
+def public_from_workbook(path, words_text="[]"):
+    """'여러 주 한 번에' — 워크북 하나 → 공개본. (성공 여부, JSON 문자열)은 public_record.make와 같고,
+    읽지 못하면 reason이 v1(예전 형식) · not_record(기록 워크북 아님) · broken(읽기 실패)이다."""
+    def failure(reason, message):
+        return False, json.dumps({"reason": reason, "error": message, "findings": []}, ensure_ascii=False)
+    try:
+        data = read(path)
+    except sv.SchemaError:
+        return failure("v1", "예전 형식(v1) 워크북이라 건너뜁니다. 행 구성이 달라 아직 읽지 않습니다.")
+    except KeyError:
+        return failure("not_record", "'Analysis'와 'News DB' 시트가 있는 기록 워크북이 아닙니다.")
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return failure("broken", "엑셀 파일을 읽지 못했습니다.")
+    except Exception:
+        return failure("broken", "기록 파일을 읽는 중 문제가 생겼습니다.")
+    return public_record.make(data, json.loads(words_text))

@@ -3,13 +3,16 @@
 허용 목록에 없는 칸은 싣지 않는다(엑셀 문서 속성·숨김 장부 열·시트 행 번호 등은 처음부터 빠진다).
 뉴스는 그 주간(Analysis I1 기준 월~일)에 날짜가 든 행만 싣는다.
 화면(web/viewer.js)은 내 파일과 공개본을 같은 모양의 자료로 그린다.
-쓰는 곳: 브라우저의 '공개본 만들기'(public_json), 배포 때 records/ 검사(web/build.py).
+쓰는 곳: 브라우저의 '공개본 만들기'(지금 연 파일 public_json, 여러 주 한 번에 workbook_view.public_from_workbook·bundle),
+배포 때 records/ 검사(web/build.py).
 """
 import datetime as dt
+import io
 import json
 import math
 import re
 import unicodedata
+import zipfile
 
 SCHEMA = "macro-notes-public/1"
 NOTICE = "개인이 매주 정리한 매크로 기록의 공개본입니다. 투자 판단이나 권유가 아닙니다."
@@ -71,7 +74,8 @@ def build(data, generated_at=None):
             "rows": rows,
             "dur": {key: _clean(state["dur"][key]) for key in BLOCK_KEYS},
             "cur": {key: _clean(state["cur"][key]) for key in BLOCK_KEYS},
-            "confirmed": bool(state["confirmed"]),
+            # None: 채점 확정 칸(C26)이 생기기 전(자동 초안 도입 전) 파일이라 확정 여부를 알 수 없다
+            "confirmed": None if state["confirmed"] is None else bool(state["confirmed"]),
             "edited_n": int(state["edited_n"]),
             "flags": {key: _clean(state["flags"].get(key)) for key in FLAG_KEYS},
         },
@@ -138,21 +142,42 @@ def place(record, where):
     return "복기 포인트(점수에서 자동으로 만든 문장)"
 
 
-def public_json(data_text, words_text="[]"):
-    """브라우저 '공개본 만들기' — (성공 여부, JSON 문자열).
+def make(data, words=()):
+    """화면 자료(workbook_view.read 결과) → (성공 여부, JSON 문자열). 성공하면 공개본 JSON 글.
+    실패하면 {"reason", "error", "findings"} — reason은 no_week(주간 날짜 없음) 또는 blocked(검사에 걸림).
     검사에 걸리면 만들지 않고 위치·종류·걸린 말을 돌려준다(그 브라우저 화면에만 보인다)."""
     try:
-        record = build(json.loads(data_text))
+        record = build(data)
     except ValueError as error:
-        return False, json.dumps({"error": str(error), "findings": []}, ensure_ascii=False)
-    found = findings(record, json.loads(words_text))
+        return False, json.dumps({"reason": "no_week", "error": str(error), "findings": []}, ensure_ascii=False)
+    found = findings(record, words)
     if found:
         return False, json.dumps({
+            "reason": "blocked",
+            "week": record["week"],
             "error": "공개하면 안 될 것으로 보이는 내용이 있어 공개본을 만들지 않았습니다. 엑셀에서 고쳐 저장한 뒤 다시 만드세요.",
             "findings": [{"place": place(record, where), "kind": kind, "text": text} for where, kind, text in found],
         }, ensure_ascii=False)
     validate(record)
     return True, json.dumps(record, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+
+
+def public_json(data_text, words_text="[]"):
+    """브라우저 '공개본 만들기'(지금 연 파일) — make()와 같다. 화면에 띄운 자료를 JSON 글로 받는다."""
+    return make(json.loads(data_text), json.loads(words_text))
+
+
+def bundle(files_text):
+    """'여러 주 한 번에' — 검사를 통과한 공개본 [{"name", "file"}] JSON 글 → zip 바이트.
+    이름은 YYYY-MM-DD.json만, 내용은 정해 둔 모양(validate)만 받는다."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for item in json.loads(files_text):
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", item["name"]):
+                raise ValueError(f"공개본 이름이 아닙니다: {item['name']}")
+            validate(json.loads(item["file"]))
+            archive.writestr(item["name"], item["file"])
+    return buffer.getvalue()
 
 
 def _exact(obj, keys, where):
@@ -202,7 +227,7 @@ def validate(record, words=()):
         raise ValueError("conclusion: 글자가 아닙니다")
     state = record["state"]
     _exact(state, STATE_KEYS, "state")
-    if not isinstance(state["confirmed"], bool) or isinstance(state["edited_n"], bool) \
+    if not isinstance(state["confirmed"], (bool, type(None))) or isinstance(state["edited_n"], bool) \
             or not isinstance(state["edited_n"], int):
         raise ValueError("state.confirmed·edited_n의 형식이 맞지 않습니다")
     for index, row in enumerate(_list(state["rows"], "state.rows")):
