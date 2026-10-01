@@ -28,6 +28,7 @@
 | 화면 구성·원문 검색·점수 비교 개선(2026-09-29) | Codex로 작성 |
 | 내 기록 보기 웹 화면 — 브라우저 안 읽기(Pyodide)·저장 감지·GitHub Pages 배포(2026-10-01) | Claude Code로 작성 |
 | 공개 기록 — 공개본 만들기(허용 칸·개인정보 검사)·여러 주 한 번에·배포 때 재검사·공개 기록 탭(2026-10-01) | Claude Code로 작성 |
+| 공개 기록 자동 올리기 — `publish_records.py`·`Publish-Records.bat`(예약 작업)(2026-10-01) | Claude Code로 작성 |
 
 AI가 쓴 코드는 제가 규칙과 검증 기준을 정하고 결과를 검수하는 방식으로 썼습니다.
 
@@ -85,6 +86,16 @@ Windows 실행 파일, 종료 방법, 포트 변경은 [실행 안내](docs/실�
 - **빠지는 것**: 다른 주 뉴스, 숨김 장부 열, 시트 행 번호, 엑셀 문서 속성(작성자 등), 원본 엑셀 파일.
 - **검사는 두 번**: 내려받기 전에 브라우저가 이메일 주소·전화번호·주민등록번호·PC 경로와 직접 적은 검사어(실명·학교 등, 이 브라우저에만 저장)를 찾고, 걸리면 위치를 알려 주고 만들지 않습니다. 배포 때 `web/build.py`가 같은 규칙과 정해 둔 칸·형식을 다시 검사하고(검사어는 저장소 비밀값 `PUBLIC_CHECK_WORDS`, 선택), 하나라도 걸리면 배포하지 않습니다. 공개 로그에는 걸린 말을 남기지 않습니다.
 - **주의**: 이 저장소는 공개라서 `records/`에 올린 파일은 배포 검사 전에도 누구나 볼 수 있습니다. 검사는 정해 둔 모양과 직접 적은 말만 찾으므로, 그 밖의 민감한 내용은 올리기 전에 직접 확인해야 합니다. 파일을 지우면 다음 배포에서 사이트에서 사라지지만 커밋 기록에는 남습니다. 자세한 내용은 [records/README.md](records/README.md).
+
+### 자동으로 올리기 (PC)
+
+[`publish_records.py`](publish_records.py)는 PC의 주간 기록 폴더(하위 폴더 포함)를 훑어 공개본을 만들고, 이미 올라간 주와 비교해 **바뀐 주만** 커밋 하나로 저장소 `records/`에 올립니다. 브라우저의 '여러 주 한 번에'와 같은 코드·같은 검사를 쓰고, 원본 엑셀은 PC 밖으로 나가지 않습니다. 저장소의 공개본을 지우지는 않습니다.
+
+1. **GitHub 토큰(한 번)**: GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token. Repository access는 **Only select repositories → macro-notes-automation**, Repository permissions는 **Contents: Read and write**만 줍니다.
+2. **처음 실행**: 저장소 폴더의 `Publish-Records.bat`을 더블클릭하고 주간 기록 폴더 경로와 토큰을 붙여 넣습니다. 둘 다 이 PC의 `사용자 폴더\.macro-notes\`에 기억합니다. 주마다 결과(새로 올림·바뀜·그대로·건너뜀과 이유)를 보여 주고, `y`를 누르면 올립니다.
+3. **매일 자동**: 명령 프롬프트에서 `Publish-Records.bat -Schedule`(기본 매일 21:00, `-At 07:30`처럼 바꿈). 바뀐 주가 없으면 아무것도 하지 않고, 실행 기록은 `.macro-notes\publish.log`에 남습니다(토큰·걸린 말은 남기지 않음). 끄기는 `Publish-Records.bat -Unschedule`.
+
+미리 보기는 `Publish-Records.bat -DryRun`, 검사어는 `.macro-notes\check-words.txt`(한 줄에 하나)입니다. 토큰이 만료되면 `.macro-notes\token.txt`를 지우고 다시 실행하면 새 토큰을 묻습니다.
 
 ### 내 파일
 
