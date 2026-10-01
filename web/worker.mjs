@@ -3,7 +3,7 @@
 // 파일은 이 스레드의 메모리에 잠시 올려 읽고 바로 지운다. 저장하거나 어디로도 보내지 않는다.
 //   { type: "read", bytes, name }          → 화면용 JSON
 //   { type: "public", text, words }        → 공개본 JSON(검사에 걸리면 위치 목록). text는 화면에 띄운 자료.
-//   { type: "bulk", bytes, name, words }   → 워크북 하나의 공개본('여러 주 한 번에', 실패하면 이유)
+//   { type: "bulk", bytes, name, words, label } → 워크북 하나의 공개본('여러 주 한 번에', 빼거나 실패하면 이유)
 //   { type: "zip", text }                  → 검사를 통과한 공개본들을 묶은 zip 바이트
 import { loadPyodide } from "../pyodide/pyodide.mjs";
 
@@ -70,7 +70,7 @@ async function handle(message) {
   py.FS.writeFile(path, new Uint8Array(message.bytes));
   try {
     reply(message.id, message.type === "bulk"
-      ? view.public_from_workbook(path, JSON.stringify(message.words || []))
+      ? view.public_from_workbook(path, JSON.stringify(message.words || []), message.label || "")
       : view.read_json(path));
   } finally {
     py.FS.unlink(path);

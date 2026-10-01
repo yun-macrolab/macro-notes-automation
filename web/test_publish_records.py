@@ -98,9 +98,15 @@ class Publish(unittest.TestCase):
         self.work = Path(tempfile.mkdtemp(dir=self.tmp.name))
         self.folder = self.work / "주간"
         (self.folder / "2026-09").mkdir(parents=True)
-        shutil.copy(self.demo, self.folder / "2026-09" / "기록_0921.xlsx")
+        original = self.folder / "2026-09" / "기록_0921.xlsx"
+        shutil.copy(self.demo, original)
+        old = original.stat().st_mtime - 3600
+        os.utime(original, (old, old))                                   # 복사본이 원본보다 늦게 저장된 상황
         self.variant("기록_0914.xlsx", {"I1": dt.datetime(2026, 9, 15), sv.DRAFT_CELL: None})
         self.variant("기록_v1.xlsx", {sv.SCHEMA_CELL: None})
+        self.variant("기록_0921 - 복사본.xlsx", {"D3": "복사본에서 고친 결론"})
+        (self.folder / "백업").mkdir()
+        self.variant("백업/기록_0921.xlsx", {"D3": "백업 폴더의 결론"})
         (self.folder / "~$기록_0921.xlsx").write_bytes(b"lock")
         self.home, self.urlopen = pub.HOME, pub.URLOPEN
         pub.HOME = self.work / "home"
@@ -125,9 +131,19 @@ class Publish(unittest.TestCase):
     def test_collect(self):
         rows, picked = pub.collect(self.folder)
         self.assertEqual(sorted(picked), ["2026-09-14.json", "2026-09-21.json"])
-        self.assertEqual(len(rows), 3)                                   # 잠금 파일(~$)은 뺀다
-        self.assertEqual([row["reason"] for row in rows if not row["ok"]], ["v1"])
+        self.assertEqual(len(rows), 5)                                   # 잠금 파일(~$)은 뺀다
+        self.assertEqual({(row["label"], row["reason"]) for row in rows if not row["ok"]},
+                         {("기록_0921 - 복사본.xlsx", "copy"), (str(Path("백업") / "기록_0921.xlsx"), "copy"),
+                          ("기록_v1.xlsx", "v1")})
+        # 늦게 저장한 복사본·백업이 아니라 원본을 쓴다
+        self.assertEqual(picked["2026-09-21.json"]["label"], str(Path("2026-09") / "기록_0921.xlsx"))
         self.assertIsNone(picked["2026-09-14.json"]["record"]["state"]["confirmed"])
+
+    def test_root_folder_name_is_not_checked(self):
+        root = self.work / "백업해 둔 주간기록"                           # 고른 폴더 자체의 이름은 보지 않는다
+        shutil.copytree(self.folder, root)
+        _, picked = pub.collect(root)
+        self.assertEqual(sorted(picked), ["2026-09-14.json", "2026-09-21.json"])
 
     def test_uploads_new_weeks_in_one_commit(self):
         github = FakeGitHub()
@@ -138,6 +154,8 @@ class Publish(unittest.TestCase):
         self.assertEqual([c for c in github.calls if c[0] != "GET"],
                          [("POST", "/git/trees"), ("POST", "/git/commits"), ("PATCH", "/git/refs/heads/main")])
         self.assertIn("records: 공개 기록 2주 올림", github.message)
+        self.assertNotIn("복사본에서 고친 결론", github.files["records/2026-09-21.json"])
+        self.assertNotIn("백업 폴더의 결론", github.files["records/2026-09-21.json"])
         self.assertTrue(all(h.get("Authorization") == f"Bearer {TOKEN}" for h in github.headers))
         self.assertNotIn(TOKEN, out)
         self.assertNotIn(TOKEN, (pub.HOME / "publish.log").read_text(encoding="utf-8"))

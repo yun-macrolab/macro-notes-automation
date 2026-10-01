@@ -239,6 +239,16 @@ class BulkExport(unittest.TestCase):
                 self.assertFalse(ok)
                 self.assertEqual(json.loads(text)["reason"], reason)
 
+    def test_copy_files_are_skipped(self):
+        ok, text = workbook_view.public_from_workbook(str(self.path), "[]", "백업/기록_0921.xlsx")
+        self.assertFalse(ok)
+        self.assertEqual(json.loads(text)["reason"], "copy")
+        self.assertTrue(workbook_view.public_from_workbook(str(self.path), "[]", "2026-09/기록_0921.xlsx")[0])
+        for name in ("기록 - 복사본 (2).xlsx", "기록 사본.xlsx", "기록_테스트.xlsx", "Copy of 기록.xlsx", "기록_backup2.xlsx", "TEST/기록.xlsx"):
+            self.assertTrue(pr.is_copy(name), name)
+        for name in ("2026-09-28 주간.xlsx", "기록_latest.xlsx", "contest.xlsx", "기록 (1).xlsx"):
+            self.assertFalse(pr.is_copy(name), name)
+
     def test_check_words_still_block(self):
         ok, text = workbook_view.public_from_workbook(str(self.path), json.dumps(["국채"], ensure_ascii=False))
         self.assertFalse(ok)

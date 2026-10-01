@@ -36,11 +36,20 @@ GENERIC = (
     ("PC 경로", re.compile(r"[a-z]:\\users\\|(?<![a-z0-9._%-])/(?:users|home)/[^/\s]+/|file:/", re.IGNORECASE)),
 )
 
+# 복사본·백업·시험용 파일 — '여러 주 한 번에'·자동 올리기에서 뺀다(같은 주 원본보다 늦게 저장돼도 올라가지 않게).
+# 영어 낱말은 앞뒤가 글자가 아닐 때만(latest·contest는 해당 없음).
+COPY_NAME = re.compile(r"복사본|사본|백업|테스트|(?<![a-z])(?:copy|backup|test)(?![a-z])", re.IGNORECASE)
+
 # 검사에 걸린 위치를 엑셀에서 찾을 수 있게 알려 줄 때 쓰는 칸 이름
 FIELD_NAMES = {"date": "날짜", "factor": "요인", "region": "지역", "keyword": "키워드", "title": "제목",
                "content": "핵심내용", "direction": "방향", "source": "출처", "kind": "유형", "label": "이름",
                "value": "내용", "note": "근거", "digest": "뉴스 요약", "house": "하우스",
                "dur_tag": "듀레이션 태그", "cur_tag": "커브 태그"}
+
+
+def is_copy(label):
+    """파일 이름이나 그 위의 폴더 이름(고른 폴더 아래 경로)에 복사본·백업·시험용 표시가 있는지."""
+    return bool(COPY_NAME.search(unicodedata.normalize("NFKC", label or "")))
 
 
 def _clean(value):

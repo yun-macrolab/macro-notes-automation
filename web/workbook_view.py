@@ -97,11 +97,14 @@ def read_json(path):
         return failure("기록 파일을 읽는 중 문제가 생겼습니다. 파일을 다시 열어 주세요.")
 
 
-def public_from_workbook(path, words_text="[]"):
+def public_from_workbook(path, words_text="[]", label=""):
     """'여러 주 한 번에' — 워크북 하나 → 공개본. (성공 여부, JSON 문자열)은 public_record.make와 같고,
-    읽지 못하면 reason이 v1(예전 형식) · not_record(기록 워크북 아님) · broken(읽기 실패)이다."""
+    빼거나 읽지 못하면 reason이 copy(복사본·백업 — label은 고른 폴더 아래 경로) · v1(예전 형식) ·
+    not_record(기록 워크북 아님) · broken(읽기 실패)이다."""
     def failure(reason, message):
         return False, json.dumps({"reason": reason, "error": message, "findings": []}, ensure_ascii=False)
+    if public_record.is_copy(label):
+        return failure("copy", "복사본·백업·시험용 파일이라 건너뜁니다(이름이나 폴더 이름에 복사본·사본·백업·테스트·copy·backup·test).")
     try:
         data = read(path)
     except sv.SchemaError:

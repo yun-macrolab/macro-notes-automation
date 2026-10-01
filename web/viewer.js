@@ -12,7 +12,7 @@ const WORDS_KEY = "macro-notes-viewer.check-words";
 const PUBLIC_SCHEMA = "macro-notes-public/1";
 const RECORD_FILE = /^\d{4}-\d{2}-\d{2}\.json$/;
 const BULK_MAX = 300;     // 폴더째 고를 때 읽을 엑셀 파일 수 상한
-const SKIP_REASONS = { v1: "예전 형식(v1)", no_week: "주간 날짜 없음(I1 칸)", not_record: "기록 워크북 아님", broken: "읽지 못함", blocked: "검사에 걸림" };
+const SKIP_REASONS = { copy: "복사본·백업 파일", v1: "예전 형식(v1)", no_week: "주간 날짜 없음(I1 칸)", not_record: "기록 워크북 아님", broken: "읽지 못함", blocked: "검사에 걸림" };
 const canWatch = typeof window.showOpenFilePicker === "function";
 
 let worker = null;
@@ -484,11 +484,12 @@ async function runExport() {
 
 /* ---------- 여러 주 한 번에 ---------- */
 // 엑셀 기록 파일만 고른다(엑셀이 열어 둔 동안 생기는 ‘~$’ 잠금 파일은 뺀다).
+// label은 고른 폴더 아래 경로다. 복사본·백업 판정(public_record.is_copy)에 고른 폴더 자체의 이름은 넣지 않는다.
 const isBook = name => /\.(xlsx|xlsm)$/i.test(name) && !name.startsWith("~$");
 const bulkItems = files => [...files].filter(file => isBook(file.name))
-  .map(file => ({ file, label: file.webkitRelativePath || file.name }));
+  .map(file => ({ file, label: file.webkitRelativePath ? file.webkitRelativePath.split("/").slice(1).join("/") : file.name }));
 
-// 끌어다 놓은 폴더(Chrome·Edge)를 하위 폴더까지 훑는다.
+// 끌어다 놓은 폴더(Chrome·Edge)를 하위 폴더까지 훑는다(prefix는 그 폴더 아래 경로).
 async function directoryItems(directory, prefix, out = []) {
   for await (const entry of directory.values()) {
     if (out.length >= BULK_MAX) break;
@@ -525,7 +526,7 @@ async function runBulk(items) {
       let reply;
       try {
         const bytes = await item.file.arrayBuffer();
-        reply = await ask({ type: "bulk", bytes, name: item.file.name, words }, [bytes]);
+        reply = await ask({ type: "bulk", bytes, name: item.file.name, label: item.label, words }, [bytes]);
       } catch (error) {
         console.error(error);
         reply = { ok: false, text: JSON.stringify({ reason: "broken", error: "파일을 읽지 못했습니다." }) };
@@ -811,7 +812,7 @@ document.addEventListener("drop", async event => {
   if (files.length > 1 || folders.length) {
     toggleExport(true);
     let items = bulkItems(files);
-    for (const folder of folders) items = items.concat(await directoryItems(folder, folder.name + "/"));
+    for (const folder of folders) items = items.concat(await directoryItems(folder, ""));
     await runBulk(items);
   } else if (dropped[0] && dropped[0].kind === "file") {
     await useHandle(dropped[0]);

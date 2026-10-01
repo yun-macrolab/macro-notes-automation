@@ -2,7 +2,8 @@
 """공개 기록 자동 올리기 — PC의 주간 기록 워크북 폴더를 훑어 공개본을 만들고, 바뀐 주만 저장소 records/에 올린다.
 
 브라우저의 '공개본 만들기 → 여러 주 한 번에'와 같은 코드·같은 검사를 쓴다(web/workbook_view.public_from_workbook).
-  - 검사에 걸린 주, 예전 형식(v1), 주간 날짜(I1)가 없는 파일은 건너뛴다. 같은 주 파일이 여럿이면 채점 확정 → 최근 저장 순.
+  - 검사에 걸린 주, 예전 형식(v1), 주간 날짜(I1)가 없는 파일, 이름이나 폴더 이름에 복사본·사본·백업·테스트·copy·backup·test가
+    든 파일은 건너뛴다. 같은 주 파일이 여럿이면 채점 확정 → 최근 저장 순. 진행 중인 주(확정 전)도 바뀌면 그대로 올린다.
   - 이미 올라간 주와 내용이 같으면(만든 시각만 다르면) 다시 올리지 않는다. 저장소의 공개본을 지우지는 않는다.
   - 바뀐 주는 GitHub API로 커밋 하나에 묶어 올린다. 그러면 배포(pages.yml)가 한 번 더 검사한 뒤 사이트에 싣는다.
 
@@ -38,7 +39,7 @@ BRANCH = "main"
 API = "https://api.github.com"
 HOME = Path.home() / ".macro-notes"
 URLOPEN = urllib.request.urlopen       # 검사에서 가짜 GitHub로 바꾼다
-REASONS = {"v1": "예전 형식(v1)", "no_week": "주간 날짜 없음(I1 칸)", "not_record": "기록 워크북 아님",
+REASONS = {"copy": "복사본·백업 파일", "v1": "예전 형식(v1)", "no_week": "주간 날짜 없음(I1 칸)", "not_record": "기록 워크북 아님",
            "broken": "읽지 못함", "blocked": "검사에 걸림"}
 
 
@@ -59,9 +60,10 @@ def collect(folder, words=()):
     """워크북마다 공개본을 만든다 → (파일별 결과, {"YYYY-MM-DD.json": 쓸 결과})."""
     rows = []
     for path in workbooks(folder):
-        ok, text = workbook_view.public_from_workbook(str(path), json.dumps(list(words), ensure_ascii=False))
+        label = str(path.relative_to(folder))
+        ok, text = workbook_view.public_from_workbook(str(path), json.dumps(list(words), ensure_ascii=False), label)
         body = json.loads(text)
-        row = {"label": str(path.relative_to(folder)), "ok": ok, "mtime": path.stat().st_mtime}
+        row = {"label": label, "ok": ok, "mtime": path.stat().st_mtime}
         if ok:
             row.update(text=text, record=body)
         else:
