@@ -1,0 +1,71 @@
+# 웹 시연 배포: 동작 검사(verify.py) → 정적 사이트 조립 → GitHub Pages
+#
+# 서버 없이 브라우저 안의 Pyodide(브라우저용 CPython)가 core.py·engine/을 그대로 실행한다.
+# 실행 기록은 방문자 브라우저(IndexedDB)에만 남고, 이 저장소나 다른 서버로 가지 않는다.
+#
+#   build   동작 검사 22개가 통과해야 조립한다. 검증 기록 탭에는 이 실행의 결과가 실린다.
+#           Pyodide와 휠은 정해 둔 해시와 일치할 때만 싣는다(npm sha512, PyPI sha256).
+#   deploy  조립한 _site/만 Pages로. 처음 한 번 Settings → Pages → Source를 "GitHub Actions"로 켜야 한다.
+#
+# 액션은 macro-regime-check와 같은 커밋 SHA로 고정한다. 올릴 때는 SHA와 주석의 버전을 함께 바꾼다.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PYODIDE_VERSION: "314.0.7"
+  PYODIDE_SHA512: "sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A=="
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: 의존성 설치
+        run: python -m pip install -r requirements.txt
+      - name: 동작 검사
+        run: python -X utf8 verify.py
+      - name: Pyodide 받기(해시 확인)
+        run: |
+          mkdir -p .build/pyodide
+          curl -fsSL -o .build/pyodide.tgz "https://registry.npmjs.org/pyodide/-/pyodide-${PYODIDE_VERSION}.tgz"
+          actual="sha512-$(openssl dgst -sha512 -binary .build/pyodide.tgz | base64 -w0)"
+          if [ "$actual" != "$PYODIDE_SHA512" ]; then echo "::error::Pyodide 해시 불일치: $actual"; exit 1; fi
+          tar -xzf .build/pyodide.tgz -C .build/pyodide
+      - name: 휠 받기(해시 확인)
+        run: python -m pip download --no-deps --only-binary=:all: --require-hashes -r web/requirements-web.txt -d .build/wheels
+      - name: 정적 사이트 조립
+        run: python -X utf8 web/build.py --pyodide .build/pyodide/package --wheels .build/wheels --out _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

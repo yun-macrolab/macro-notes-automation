@@ -1,0 +1,6 @@
+# 웹 시연(브라우저 안 Pyodide)에 넣는 순수 파이썬 휠. 로컬 실행의 requirements.txt와 같은 openpyxl 버전.
+# 해시는 PyPI 공개값과 대조했다. pip download --require-hashes로 받아 이 바이트 그대로 배포한다.
+openpyxl==3.1.5 \
+    --hash=sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2
+et-xmlfile==2.0.0 \
+    --hash=sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa

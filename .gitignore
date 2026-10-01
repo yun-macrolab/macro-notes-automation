@@ -13,3 +13,7 @@ _recovery/
 .venv/
 .DS_Store
 Thumbs.db
+
+# 웹 시연 조립 결과 (web/build.py, GitHub Actions에서 만든다)
+_site/
+.build/
