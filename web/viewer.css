@@ -1,4 +1,5 @@
-/* 내 기록 보기 — static/style.css(시연 화면)의 색·글꼴·부품을 그대로 쓰고, 이 화면에만 필요한 부분을 더한다. */
+/* 매크로 기록 보기 — static/style.css(시연 화면)의 색·글꼴·부품을 그대로 쓰고, 이 화면에만 필요한 부분을 더한다. */
+body{word-break:keep-all;overflow-wrap:anywhere}  /* 한국어는 낱말 중간에서 줄을 바꾸지 않는다 */
 .file-bar{margin-bottom:28px}
 .file-status{display:flex;flex-direction:column;gap:3px;min-width:0}
 .file-label{font-size:12px;font-weight:600}
@@ -26,4 +27,35 @@ td.note .ref{color:var(--muted);margin-top:6px}
   .conclusion{padding:18px 16px}
   .side-box dl{grid-template-columns:1fr;gap:2px}
   .side-box dd{margin-bottom:8px}
+}
+/* 공개 기록 탭 */
+.public-bar{margin-bottom:28px}
+#public-week{min-width:300px;font-size:13px;margin-top:4px}
+#public-meta{font-size:12px;color:var(--muted);text-align:right}
+#public-meta a{white-space:nowrap}
+/* 공개본 만들기 */
+.export-panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,1fr);gap:18px 32px;background:white;border:1px solid var(--line);border-radius:var(--radius);padding:22px 26px;margin:-14px 0 28px}
+.export-text h2{margin-bottom:8px}
+.export-text p{font-size:12px;color:var(--muted);line-height:1.9}
+.export-list{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;margin:14px 0 0;font-size:12px}
+.export-list dt{font-weight:600}
+.export-list dd{margin:0;color:#50666d}
+.export-form{display:flex;flex-direction:column;gap:6px}
+.export-form label{font-size:12px;font-weight:600}
+.export-form small{font-size:11px;color:var(--muted)}
+#check-words{width:100%;min-height:96px;resize:vertical;padding:10px 12px;border:1px solid #c6d6d2;border-radius:6px;background:#fafcfb;color:var(--ink);font:inherit;font-size:12px}
+#check-words:focus-visible{outline:3px solid #ae7d29;outline-offset:2px}
+.export-form .run-actions{margin-top:6px}
+#export-result{grid-column:1/-1}
+#export-result:empty{display:none}
+#export-result .help{font-size:12px}
+.export-blocked,.export-done{border-radius:8px;padding:14px 18px;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+.export-blocked{background:#fff0eb;color:#963d2d;border:1px solid #edc6b9}
+.export-done{background:#e1efe8;color:#225a47;border:1px solid #c5ddcf}
+.export-blocked ul,.export-done ol{margin:8px 0 0;padding-left:20px}
+.export-done p{margin-top:4px}
+@media(max-width:620px){
+  #public-week{min-width:0;width:100%}
+  #public-meta{text-align:left;margin-top:10px}
+  .export-panel{grid-template-columns:1fr;padding:18px 16px}
 }

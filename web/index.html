@@ -3,45 +3,76 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>매크로 기록 보기</title>
-  <meta name="description" content="내 PC의 매크로 기록 워크북을 브라우저 안에서 열어 뉴스 원문·점수·메모를 보는 화면. 파일은 어디에도 올리지 않습니다.">
+  <meta name="description" content="매주 정리한 매크로 기록(뉴스 원문·점수·메모)의 공개본을 보고, 내 PC의 기록 워크북도 브라우저 안에서 열어 보는 화면. 내 파일은 어디에도 올리지 않습니다.">
   <link rel="icon" href="data:,"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="viewer.css"><script src="viewer.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">본문으로 이동</a>
 <header class="app-header">
-  <a class="brand" href="./" aria-label="매크로 기록 보기 처음으로"><span class="brand-symbol" aria-hidden="true">M<span>n</span></span><span>매크로 기록 자동화<small>내 기록 보기</small></span></a>
+  <a class="brand" href="./" aria-label="매크로 기록 보기 처음으로"><span class="brand-symbol" aria-hidden="true">M<span>n</span></span><span>매크로 기록 자동화<small>매크로 기록 보기</small></span></a>
+  <nav role="tablist" aria-label="볼 기록" id="source-tabs" class="hidden">
+    <button id="tab-public" class="nav active" role="tab" data-tab="public" aria-controls="view" aria-selected="true">공개 기록</button>
+    <button id="tab-local" class="nav" role="tab" data-tab="local" aria-controls="view" aria-selected="false" tabindex="-1">내 파일</button>
+  </nav>
   <a class="header-link" href="https://github.com/yun-macrolab/macro-notes-automation#readme" target="_blank" rel="noopener">프로젝트 소개 <span aria-hidden="true">↗</span></a>
 </header>
 <main id="main">
 <div id="message" role="status" aria-live="polite" tabindex="-1"></div>
 <div class="intro">
-  <div><h1>내 매크로 기록을<br>이 화면에서 봅니다.</h1><p class="lede">PC에 있는 기록 워크북(.xlsx)을 고르면 뉴스 원문과 점수, 메모를 보여 줍니다. <br>파일은 이 브라우저 안에서만 읽고 어디에도 올리지 않습니다.</p></div>
-  <div class="scope-note"><span class="badge">읽기 전용</span><p>Chrome·Edge에서는 엑셀에서 저장할 때마다 <br>몇 초 안에 화면이 바뀝니다.</p><small>다른 브라우저에서는 저장한 뒤 파일을 다시 고르세요.</small></div>
+  <div><h1>매주 정리한 매크로 기록을<br>이 화면에서 봅니다.</h1><p class="lede">공개한 주간 기록의 뉴스 원문과 점수·근거, 메모를 보여 줍니다. <br>기록 워크북(.xlsx)이 있으면 직접 열어 볼 수도 있고, 그 파일은 이 브라우저 안에서만 읽습니다.</p></div>
+  <div class="scope-note"><span class="badge">읽기 전용</span><p>개인이 정리한 기록입니다. <br>투자 판단이나 권유가 아닙니다.</p><small>Chrome·Edge에서 내 파일을 열면 엑셀에서 저장할 때마다 몇 초 안에 다시 읽습니다.</small></div>
 </div>
-<div class="workspace-bar file-bar">
-  <div class="file-status"><span class="file-label">기록 파일</span><strong id="file-name">아직 열지 않았습니다</strong><span id="file-meta"></span></div>
-  <div class="run-actions">
-    <button class="primary" id="open">기록 파일 열기</button>
-    <button id="reopen" class="hidden">지난 파일 다시 열기</button>
-    <button id="reload" class="hidden">지금 다시 읽기</button>
-    <button id="close" class="hidden">닫기</button>
+<div id="view" class="hidden">
+<div class="workspace-bar public-bar hidden" id="public-bar">
+  <div class="file-status"><label class="file-label" for="public-week">공개된 주간 기록</label><select id="public-week"></select></div>
+  <p id="public-meta"></p>
+</div>
+<div id="local-tools">
+  <div class="workspace-bar file-bar">
+    <div class="file-status"><span class="file-label">기록 파일</span><strong id="file-name">아직 열지 않았습니다</strong><span id="file-meta"></span></div>
+    <div class="run-actions">
+      <button class="primary" id="open">기록 파일 열기</button>
+      <button id="reopen" class="hidden">지난 파일 다시 열기</button>
+      <button id="reload" class="hidden">지금 다시 읽기</button>
+      <button id="export" class="hidden" aria-expanded="false" aria-controls="export-panel">공개본 만들기</button>
+      <button id="close" class="hidden">닫기</button>
+    </div>
+    <input type="file" id="picker" accept=".xlsx,.xlsm" class="hidden" tabindex="-1" aria-hidden="true">
   </div>
-  <input type="file" id="picker" accept=".xlsx,.xlsm" class="hidden" tabindex="-1" aria-hidden="true">
+  <section class="export-panel hidden" id="export-panel" aria-labelledby="export-title" data-upload="https://github.com/yun-macrolab/macro-notes-automation/upload/main/records">
+    <div class="export-text">
+      <h2 id="export-title">공개본 만들기</h2>
+      <p id="export-scope"></p>
+      <dl class="export-list">
+        <dt>실림</dt><dd>그 주 날짜의 뉴스(제목·출처·분류·핵심내용), 점수·판정·근거·결론, 메모, FLAG</dd>
+        <dt>빠짐</dt><dd>다른 주 뉴스, 숨김 장부 열, 시트 행 번호, 엑셀 문서 속성(작성자 등)</dd>
+      </dl>
+    </div>
+    <div class="export-form">
+      <label for="check-words">검사어</label>
+      <small id="check-words-help">실명·학교·회사처럼 공개본에 있으면 안 되는 말을 한 줄에 하나씩 적습니다. 이 브라우저에만 저장됩니다.</small>
+      <textarea id="check-words" rows="4" spellcheck="false" autocomplete="off" aria-describedby="check-words-help check-words-auto"></textarea>
+      <small id="check-words-auto">이메일 주소·전화번호·주민등록번호·PC 경로는 적지 않아도 검사합니다.</small>
+      <div class="run-actions"><button class="primary" id="export-run">검사하고 내려받기</button></div>
+    </div>
+    <div id="export-result" aria-live="polite"></div>
+  </section>
 </div>
 <div id="empty" class="empty"><div class="empty-mark" aria-hidden="true">＋</div><h2>기록 파일을 열어 주세요.</h2><p>Analysis·News DB 시트가 있는 v2 기록 워크북을 엽니다.<br>파일을 이 화면에 끌어다 놓아도 됩니다.</p></div>
+<div id="public-empty" class="empty hidden"><h2 id="public-empty-title">공개 기록을 불러오고 있습니다.</h2></div>
 <div id="result" class="hidden">
   <div class="run-heading"><span id="week-label"></span><span id="confirm-label"></span></div>
   <dl class="summary">
     <div><dt>듀레이션</dt><dd id="dur-total">—</dd><small id="dur-verdict"></small></div>
     <div><dt>커브</dt><dd id="cur-total">—</dd><small id="cur-verdict"></small></div>
-    <div><dt>이번 주 뉴스</dt><dd id="news-week">—</dd><small id="news-total"></small></div>
+    <div><dt>기준 주간 뉴스</dt><dd id="news-week">—</dd><small id="news-total"></small></div>
     <div><dt>직접 고친 점수</dt><dd id="edited">—</dd><small>자동 초안이 다시 덮지 않는 칸</small></div>
   </dl>
   <section class="conclusion" aria-labelledby="conclusion-title"><h2 id="conclusion-title">금주 결론</h2><p id="conclusion"></p></section>
   <div class="review-layout">
     <article class="sources" aria-labelledby="sources-title">
       <div class="section-title"><h2 id="sources-title">뉴스 원문</h2><a class="jump-link" href="#analysis-panel">점수로 이동 ↓</a></div>
-      <label class="search-label" for="week-filter">기간</label><select id="week-filter"></select>
+      <div id="week-filter-box"><label class="search-label" for="week-filter">기간</label><select id="week-filter"></select></div>
       <label class="search-label" for="news-search">원문 검색</label><input id="news-search" type="search" placeholder="제목, 키워드, 내용 검색" autocomplete="off">
       <div class="filters" role="group" aria-label="뉴스 유형"><button data-kind="all" aria-pressed="true">전체</button><button data-kind="지표" aria-pressed="false">지표</button><button data-kind="이벤트" aria-pressed="false">이벤트</button><button data-kind="의견" aria-pressed="false">의견</button></div>
       <p class="list-meta" id="filter-count" aria-live="polite"></p><div id="news-list"></div>
@@ -56,7 +87,8 @@
     </article>
   </div>
 </div>
-<footer><span>매크로 기록 자동화</span><span>내 기록 보기 · 파일은 이 브라우저 밖으로 나가지 않습니다</span><a href="https://github.com/yun-macrolab/macro-notes-automation" target="_blank" rel="noopener">GitHub에서 보기 ↗</a></footer>
+</div>
+<footer><span>매크로 기록 자동화</span><span>매크로 기록 보기 · 내 파일은 이 브라우저 밖으로 나가지 않습니다</span><a href="https://github.com/yun-macrolab/macro-notes-automation" target="_blank" rel="noopener">GitHub에서 보기 ↗</a></footer>
 </main>
 </body>
 </html>

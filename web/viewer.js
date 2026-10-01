@@ -1,10 +1,15 @@
-// 내 기록 보기 — 기록 워크북을 고르고, 저장될 때마다 다시 읽어 화면에 그린다.
-// 파일 내용은 브라우저 작업 스레드(web/worker.mjs)로만 넘기고 서버나 저장소로 보내지 않는다.
+// 매크로 기록 보기 — 공개한 주간 기록(records/)을 보여 주고, 내 PC의 기록 워크북도 열어 본다.
+// 내 파일 내용은 브라우저 작업 스레드(web/worker.mjs)로만 넘기고 서버나 저장소로 보내지 않는다.
 // Chrome·Edge는 파일 핸들을 기억해 3초마다 수정 시각을 확인하고, 다른 브라우저는 파일을 다시 고를 때 읽는다.
+// 기록을 읽는 엔진(약 14MB)은 내 파일을 쓸 때만 내려받는다. 공개 기록은 JSON만 받는다.
+// '공개본 만들기'는 화면에 띄운 내 기록에서 정해 둔 칸만 뽑아 검사한 뒤 JSON 파일로 내려받는다(올리는 것은 사람이 한다).
 "use strict";
 const $ = selector => document.querySelector(selector);
 const POLL_MS = 3000;
 const DB = { name: "macro-notes-viewer", store: "handles", key: "last" };
+const WORDS_KEY = "macro-notes-viewer.check-words";
+const PUBLIC_SCHEMA = "macro-notes-public/1";
+const RECORD_FILE = /^\d{4}-\d{2}-\d{2}\.json$/;
 const canWatch = typeof window.showOpenFilePicker === "function";
 
 let worker = null;
@@ -17,8 +22,16 @@ let remembered = null;    // 지난 방문에 연 파일 핸들
 let lastFile = null;      // 마지막으로 읽은 File(이름·수정 시각)
 let seenStamp = null;     // 마지막으로 읽기에 성공한 파일의 수정 시각·크기
 let failedStamp = null;   // 읽기에 실패한 파일의 수정 시각·크기(같은 파일을 되풀이해 읽지 않게)
-let data = null;
+let localData = null;     // 내 파일에서 읽은 기록
+let publicList = [];      // records/index.json의 목록(최신 주가 먼저)
+let publicData = null;    // 고른 공개 기록
+let publicFile = null;
+let publicFailed = false;
+let publicSeq = 0;
+let tab = "local";        // 화면에 그리는 쪽: "public" | "local"
+let data = null;          // 지금 화면에 그린 기록(publicData 또는 localData)
 let reading = false;
+let exporting = false;
 let timer = null;
 let filterKind = "all";
 
@@ -56,22 +69,45 @@ function mondayOf(iso) {
   return addDays(iso, -((day.getUTCDay() + 6) % 7));
 }
 
-/* ---------- 작업 스레드 ---------- */
+/* ---------- 작업 스레드(내 파일을 쓸 때만 시작) ---------- */
+const ENGINE_FAILED = JSON.stringify({ error: "기록을 읽는 엔진을 시작하지 못했습니다." });
+
 function engineFailure() {
   engineFailed = true;
   message("기록을 읽는 엔진을 시작하지 못했습니다. 최신 Chrome·Edge·Safari·Firefox에서 다시 열어 주세요.", "error");
-  pending.forEach(({ resolve }) => resolve({ ok: false, text: JSON.stringify({ error: "기록을 읽는 엔진을 시작하지 못했습니다." }) }));
+  pending.forEach(({ resolve }) => resolve({ ok: false, text: ENGINE_FAILED }));
   pending.clear();
 }
-try {
-  worker = new Worker(new URL("web/worker.mjs", location.href), { type: "module" });
+
+// 내 파일 탭에서 지금 할 일을 알려 준다.
+function localStatus() {
+  if (engineFailed) {
+    message("기록을 읽는 엔진을 시작하지 못했습니다. 최신 Chrome·Edge·Safari·Firefox에서 다시 열어 주세요.", "error");
+  } else if (!engineReady) {
+    message("기록을 읽는 엔진을 준비하고 있습니다. 처음 한 번은 약 14MB를 내려받아 10초 안팎 걸립니다.", "busy");
+  } else if (!localData) {
+    message(canWatch
+      ? "준비됐습니다. ‘기록 파일 열기’를 누르세요. 엑셀에서 저장할 때마다 자동으로 다시 읽습니다."
+      : "준비됐습니다. ‘기록 파일 열기’를 누르세요. 이 브라우저에서는 저장한 뒤 파일을 다시 골라야 바뀐 내용이 보입니다.");
+  } else {
+    message("");
+  }
+}
+
+function startEngine() {
+  if (worker || engineFailed) return;
+  try {
+    worker = new Worker(new URL("web/worker.mjs", location.href), { type: "module" });
+  } catch (error) {
+    console.error(error);
+    engineFailure();
+    return;
+  }
   worker.onerror = engineFailure;
   worker.onmessage = ({ data: reply }) => {
     if (reply.type === "ready") {
       engineReady = true;
-      if (!data && !reading) message(canWatch
-        ? "준비됐습니다. ‘기록 파일 열기’를 누르세요. 엑셀에서 저장할 때마다 자동으로 다시 읽습니다."
-        : "준비됐습니다. ‘기록 파일 열기’를 누르세요. 이 브라우저에서는 저장한 뒤 파일을 다시 골라야 바뀐 내용이 보입니다.");
+      if (tab === "local" && !reading) localStatus();
       return;
     }
     if (reply.type === "failed") {
@@ -85,49 +121,49 @@ try {
       entry.resolve(reply);
     }
   };
-} catch (error) {
-  console.error(error);
-  engineFailure();
 }
 
-function parse(bytes, name) {
-  if (engineFailed || !worker) {
-    return Promise.resolve({ ok: false, text: JSON.stringify({ error: "기록을 읽는 엔진을 시작하지 못했습니다." }) });
-  }
+function ask(request, transfer = []) {
+  startEngine();
+  if (engineFailed || !worker) return Promise.resolve({ ok: false, text: ENGINE_FAILED });
   return new Promise(resolve => {
     const id = ++seq;
     pending.set(id, { resolve });
-    worker.postMessage({ id, bytes, name }, [bytes]);
+    worker.postMessage({ id, ...request }, transfer);
   });
 }
 
-/* ---------- 파일 읽기 ---------- */
+/* ---------- 내 파일 읽기 ---------- */
 async function readFile(file, { quiet = false } = {}) {
   if (reading) return false;
   reading = true;
   buttons();
   if (!quiet) {
-    message(engineReady ? "기록 파일을 읽고 있습니다." : "기록을 읽는 엔진을 준비하고 있습니다. 처음에는 약 14MB를 내려받아 10초 안팎 걸립니다.", "busy");
+    message(engineReady ? "기록 파일을 읽고 있습니다." : "기록을 읽는 엔진을 준비하고 있습니다. 처음 한 번은 약 14MB를 내려받아 10초 안팎 걸립니다.", "busy");
   }
+  // 공개 기록 탭을 보는 동안 뒤에서 다시 읽은 결과는 알리지 않는다(내 파일 탭에서 보인다).
+  const tell = (text, kind) => { if (!quiet || tab === "local") message(text, kind); };
   try {
-    const reply = await parse(await file.arrayBuffer(), file.name);
+    const bytes = await file.arrayBuffer();
+    const reply = await ask({ type: "read", bytes, name: file.name }, [bytes]);
     const body = JSON.parse(reply.text);
     if (!reply.ok) {
       failedStamp = stamp(file);
-      message(body.error, "error");
+      tell(body.error, "error");
       return false;
     }
-    data = body;
+    localData = body;
     lastFile = file;
     seenStamp = stamp(file);
     failedStamp = null;
-    render();
-    message(quiet ? `저장된 변경을 반영했습니다(${clock(Date.now())}).` : "기록을 불러왔습니다.");
+    exportScope();
+    if (tab === "local") show();
+    tell(quiet ? `저장된 변경을 반영했습니다(${clock(Date.now())}).` : "기록을 불러왔습니다.");
     return true;
   } catch (error) {
     console.error(error);
     failedStamp = stamp(file);
-    message("파일을 읽지 못했습니다. 다시 열어 주세요.", "error");
+    tell("파일을 읽지 못했습니다. 다시 열어 주세요.", "error");
     return false;
   } finally {
     reading = false;
@@ -135,11 +171,18 @@ async function readFile(file, { quiet = false } = {}) {
   }
 }
 
-async function useHandle(next) {
+// 다른 파일로 바꿀 때: 지켜보던 핸들과 지난 공개본 결과를 내려놓는다.
+function forgetHandle() {
   stopWatching();
+  handle = null;
+  seenStamp = failedStamp = null;
+  $("#export-result").replaceChildren();
+}
+
+async function useHandle(next) {
+  forgetHandle();
   handle = next;
   remembered = next;
-  seenStamp = failedStamp = null;
   try {
     await idb("readwrite", store => store.put(next, DB.key));
   } catch {
@@ -214,15 +257,14 @@ async function reopen() {
   await useHandle(remembered);
 }
 
-function closeFile() {
-  stopWatching();
-  handle = remembered = lastFile = data = null;
-  seenStamp = failedStamp = null;
-  idb("readwrite", store => store.delete(DB.key)).catch(() => {});
-  $("#result").classList.add("hidden");
-  $("#empty").classList.remove("hidden");
+async function closeFile() {
+  forgetHandle();
+  remembered = lastFile = localData = null;
+  closeExport();
+  show();
+  // 기억해 둔 위치를 다 지운 뒤에 알린다(바로 새로고침해도 다시 열리지 않게).
+  await idb("readwrite", store => store.delete(DB.key)).catch(() => {});
   message("파일을 닫았습니다. 화면에 띄웠던 내용과 기억해 둔 파일 위치도 지웠습니다.");
-  buttons();
 }
 
 /* ---------- 지난 파일 기억(IndexedDB에는 파일 위치만, 내용은 저장하지 않는다) ---------- */
@@ -241,19 +283,208 @@ function idb(mode, action) {
   });
 }
 
-async function restore() {
-  if (!canWatch) return;
+// 지난 방문에 연 파일이 있으면 기억해 두고, 다시 읽을 권한이 이미 있는지 알려 준다.
+async function rememberedHandle() {
+  if (!canWatch) return false;
   try {
     remembered = (await idb("readonly", store => store.get(DB.key))) || null;
   } catch {
     remembered = null;
   }
-  buttons();
-  if (!remembered) return;
+  if (!remembered) return false;
   try {
-    if ((await remembered.queryPermission({ mode: "read" })) === "granted") await useHandle(remembered);
+    return (await remembered.queryPermission({ mode: "read" })) === "granted";
   } catch {
     // 권한을 물어보려면 사용자의 클릭이 필요하다. ‘지난 파일 다시 열기’ 버튼으로 받는다.
+    return false;
+  }
+}
+
+/* ---------- 공개 기록(records/) ---------- */
+async function loadIndex() {
+  try {
+    const response = await fetch("records/index.json", { cache: "no-cache" });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body.records) ? body.records.filter(entry => entry && RECORD_FILE.test(entry.file)) : [];
+  } catch (error) {
+    console.warn(error);
+    return [];
+  }
+}
+
+function publicOptions() {
+  $("#public-week").replaceChildren(...publicList.map((entry, index) => el("option", {
+    value: entry.file,
+    text: `${entry.start} ~ ${String(entry.end).slice(5)}${index === 0 ? " · 최신" : ""}${entry.confirmed ? "" : " · 확정 전"}`,
+  })));
+}
+
+async function showPublic(file, { remember = false } = {}) {
+  const mine = ++publicSeq;
+  $("#public-week").value = file;
+  if (tab === "public") message("공개 기록을 불러오고 있습니다.", "busy");
+  try {
+    const response = await fetch("records/" + file, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`records/${file}: HTTP ${response.status}`);
+    const record = await response.json();
+    if (record.schema !== PUBLIC_SCHEMA) throw new Error(`records/${file}: schema ${record.schema}`);
+    if (mine !== publicSeq) return;
+    publicData = record;
+    publicFile = file;
+    publicFailed = false;
+    if (remember) history.replaceState(null, "", "#" + record.week.start);
+    if (tab === "public") {
+      message("");
+      show();
+    }
+  } catch (error) {
+    if (mine !== publicSeq) return;
+    console.warn(error);
+    publicFailed = !publicData;
+    if (publicFile) $("#public-week").value = publicFile;
+    if (tab === "public") {
+      message("공개 기록을 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요.", "error");
+      show();
+    }
+  }
+}
+
+function publicMeta() {
+  const meta = $("#public-meta");
+  meta.replaceChildren();
+  if (!publicData) return;
+  const made = Date.parse(publicData.generated_at);
+  if (!Number.isNaN(made)) meta.append(`${clock(made)}에 만든 공개본 · `);
+  meta.append(el("a", { href: "records/" + publicFile, target: "_blank", rel: "noopener", text: "JSON 원본 ↗" }));
+}
+
+/* ---------- 탭 ---------- */
+function showTab(name, focus = false) {
+  tab = name;
+  document.querySelectorAll("[data-tab]").forEach(button => {
+    const selected = button.dataset.tab === name;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected && focus) button.focus();
+  });
+  $("#view").classList.remove("hidden");
+  if (publicList.length) $("#view").setAttribute("aria-labelledby", "tab-" + name);
+  $("#public-bar").classList.toggle("hidden", name !== "public");
+  $("#local-tools").classList.toggle("hidden", name !== "local");
+  if (name === "local") {
+    startEngine();
+    if (!reading) localStatus();
+  } else {
+    message(publicFailed ? "공개 기록을 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요." : "", publicFailed ? "error" : "");
+  }
+  show();
+}
+
+function show() {
+  data = tab === "public" ? publicData : localData;
+  $("#empty").classList.toggle("hidden", tab !== "local" || !!data);
+  $("#public-empty").classList.toggle("hidden", tab !== "public" || !!data);
+  $("#public-empty-title").textContent = publicFailed ? "공개 기록을 불러오지 못했습니다." : "공개 기록을 불러오고 있습니다.";
+  if (data) render();
+  else $("#result").classList.add("hidden");
+  if (tab === "public") publicMeta();
+  buttons();
+}
+
+/* ---------- 공개본 만들기 ---------- */
+function loadWords() {
+  try {
+    return localStorage.getItem(WORDS_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveWords() {
+  try {
+    localStorage.setItem(WORDS_KEY, $("#check-words").value);
+  } catch {
+    // 저장하지 못해도 이번 검사에는 쓴다.
+  }
+}
+
+function exportScope() {
+  const week = localData && localData.week;
+  $("#export-scope").textContent = week && week.start
+    ? `화면에 띄운 기록 중 기준 주간 ${week.start} ~ ${week.end}의 내용만 ${week.start}.json 파일로 내려받습니다.`
+    : "Analysis I1 칸에 주간 날짜가 없어 공개본을 만들 수 없습니다.";
+}
+
+function toggleExport() {
+  const panel = $("#export-panel");
+  const open = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  $("#export").setAttribute("aria-expanded", String(open));
+  if (open) {
+    exportScope();
+    $("#check-words").focus();
+  }
+}
+
+function closeExport() {
+  $("#export-panel").classList.add("hidden");
+  $("#export").setAttribute("aria-expanded", "false");
+  $("#export-result").replaceChildren();
+}
+
+function download(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = el("a", { href: url, download: name, class: "hidden" });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function blockedView(body) {
+  const found = body.findings || [];
+  return el("div", { class: "export-blocked", role: "alert" },
+    el("strong", { text: body.error }),
+    found.length ? el("ul", {}, ...found.slice(0, 20).map(f => el("li", { text: `${f.place} — ${f.kind} ‘${f.text}’` }))) : null,
+    found.length > 20 ? el("p", { text: `외 ${found.length - 20}곳` }) : null);
+}
+
+function doneView(record) {
+  const name = record.week.start + ".json";
+  return el("div", { class: "export-done" },
+    el("strong", { text: `${name}을 내려받았습니다.` }),
+    el("p", { text: `뉴스 ${record.news.length}건 · 점수 ${record.state.rows.length}항목 · 메모 ${record.memo.length}칸이 실렸습니다.` }),
+    el("ol", {},
+      el("li", {}, "저장소의 records 폴더 올리기 화면을 엽니다. ",
+        el("a", { href: $("#export-panel").dataset.upload, target: "_blank", rel: "noopener", text: "records에 올리기 ↗" })),
+      el("li", { text: `내려받은 파일을 고치지 말고 끌어다 놓은 뒤 ‘Commit changes’를 누릅니다. 파일 이름이 ${name}인지 확인하세요(같은 이름이 이미 있으면 브라우저가 (1)을 붙입니다).` }),
+      el("li", { text: "1~2분 뒤 배포가 끝나면 ‘공개 기록’ 탭에 보입니다." })));
+}
+
+async function runExport() {
+  if (!localData || exporting) return;
+  exporting = true;
+  buttons();
+  const result = $("#export-result");
+  result.replaceChildren(el("p", { class: "help", text: "검사하고 있습니다." }));
+  const words = $("#check-words").value.split("\n").map(word => word.trim()).filter(Boolean);
+  try {
+    const reply = await ask({ type: "public", text: JSON.stringify(localData), words });
+    const body = JSON.parse(reply.text);
+    if (!reply.ok) {
+      result.replaceChildren(blockedView(body));
+      return;
+    }
+    download(body.week.start + ".json", reply.text);
+    result.replaceChildren(doneView(body));
+  } catch (error) {
+    console.error(error);
+    result.replaceChildren(el("div", { class: "export-blocked", role: "alert", text: "공개본을 만들지 못했습니다. 다시 눌러 주세요." }));
+  } finally {
+    exporting = false;
+    buttons();
   }
 }
 
@@ -262,7 +493,9 @@ function buttons() {
   $("#open").disabled = reading;
   $("#reload").disabled = reading;
   $("#reload").classList.toggle("hidden", !handle);
-  $("#close").classList.toggle("hidden", !data && !remembered);
+  $("#export").classList.toggle("hidden", !localData);
+  $("#export-run").disabled = exporting || !localData;
+  $("#close").classList.toggle("hidden", !localData && !remembered);
   $("#reopen").classList.toggle("hidden", !remembered || !!handle);
   if (remembered) $("#reopen").textContent = "지난 파일 다시 열기 · " + remembered.name;
   $("#file-name").textContent = lastFile ? lastFile.name : "아직 열지 않았습니다";
@@ -296,7 +529,7 @@ function weekOptions() {
   const previous = select.value;
   const weeks = [...new Set(data.news.map(n => mondayOf(n.date)).filter(Boolean))].sort().reverse();
   const options = [];
-  if (data.week.start) options.push(["current", `이번 주 · ${data.week.start} ~ ${data.week.end.slice(5)}`]);
+  if (data.week.start) options.push(["current", `기준 주간 · ${data.week.start} ~ ${data.week.end.slice(5)}`]);
   options.push(["all", "전체 기간"]);
   weeks.forEach(monday => options.push([monday, `${monday} 주`]));
   select.replaceChildren(...options.map(([value, label]) => el("option", { value, text: label })));
@@ -313,7 +546,8 @@ function inPeriod(news, period) {
 function renderNews() {
   if (!data) return;
   const query = $("#news-search").value.trim().toLocaleLowerCase();
-  const period = $("#week-filter").value;
+  // 공개본에는 그 주 뉴스만 있어 기간을 고르지 않는다.
+  const period = tab === "public" ? "all" : $("#week-filter").value;
   const inRange = data.news.filter(n => inPeriod(n, period));
   const visible = inRange.filter(n => (filterKind === "all" || n.kind === filterKind) &&
     [n.title, n.content, n.keyword, n.factor, n.region, n.source].join(" ").toLocaleLowerCase().includes(query));
@@ -346,7 +580,7 @@ function definitionList(target, pairs) {
 
 function render() {
   const { state, week } = data;
-  $("#empty").classList.add("hidden");
+  const isPublic = tab === "public";
   $("#result").classList.remove("hidden");
   $("#week-label").textContent = week.start ? `기준 주간 ${week.start} ~ ${week.end}` : "기준 주간 정보 없음(Analysis I1 칸)";
   $("#confirm-label").textContent = state.confirmed ? "채점 확정" : "확정 전 초안";
@@ -357,10 +591,11 @@ function render() {
   $("#cur-total").textContent = score(state.cur.total, 2);
   $("#cur-verdict").textContent = state.cur.verdict;
   $("#news-week").textContent = week.start ? data.news.filter(n => inPeriod(n, "current")).length + "건" : "—";
-  $("#news-total").textContent = `전체 ${data.news.length}건`;
+  $("#news-total").textContent = isPublic ? "공개본에 실린 뉴스" : `전체 ${data.news.length}건`;
   $("#edited").textContent = state.edited_n + "칸";
   $("#conclusion").textContent = data.conclusion || "아직 적지 않았습니다.";
-  weekOptions();
+  $("#week-filter-box").classList.toggle("hidden", isPublic);
+  if (!isPublic) weekOptions();
   renderNews();
   $("#rows").replaceChildren(...state.rows.map(row => el("tr", {},
     el("td", { class: "label", text: row.label }),
@@ -384,10 +619,22 @@ function render() {
     ["미 근원 CPI 3% 미만", f.core_cpi_lt3 ? "Y" : "N"],
     ...(f.relax ? [["판정 완화", "국면 A′ + 근원 CPI 3% 미만 → U/W 한 단계 완화"]] : []),
   ]);
-  buttons();
 }
 
 /* ---------- 이벤트 ---------- */
+document.querySelectorAll("[data-tab]").forEach((button, index, tabs) => {
+  button.addEventListener("click", () => { if (tab !== button.dataset.tab) showTab(button.dataset.tab); });
+  button.addEventListener("keydown", event => {
+    const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+      : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+      : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+    if (next !== null) {
+      event.preventDefault();
+      showTab(tabs[next].dataset.tab, true);
+    }
+  });
+});
+$("#public-week").addEventListener("change", event => showPublic(event.target.value, { remember: true }));
 $("#open").addEventListener("click", openFile);
 $("#reopen").addEventListener("click", reopen);
 $("#reload").addEventListener("click", async () => {
@@ -399,13 +646,14 @@ $("#reload").addEventListener("click", async () => {
   }
 });
 $("#close").addEventListener("click", closeFile);
+$("#export").addEventListener("click", toggleExport);
+$("#export-run").addEventListener("click", runExport);
+$("#check-words").addEventListener("input", saveWords);
 $("#picker").addEventListener("change", async event => {
   const file = event.target.files[0];
   event.target.value = "";
   if (!file) return;
-  stopWatching();
-  handle = null;
-  seenStamp = failedStamp = null;
+  forgetHandle();
   await readFile(file);
 });
 $("#week-filter").addEventListener("change", renderNews);
@@ -431,17 +679,44 @@ document.addEventListener("drop", async event => {
   const item = [...event.dataTransfer.items].find(entry => entry.kind === "file");
   const pendingHandle = item && typeof item.getAsFileSystemHandle === "function" ? item.getAsFileSystemHandle() : null;
   const file = event.dataTransfer.files[0];
+  if (tab !== "local") showTab("local");
   const dropped = pendingHandle ? await pendingHandle.catch(() => null) : null;
   if (dropped && dropped.kind === "file") {
     await useHandle(dropped);
   } else if (file) {
-    stopWatching();
-    handle = null;
-    seenStamp = failedStamp = null;
+    forgetHandle();
     await readFile(file);
   }
 });
 
-message("기록을 읽는 엔진을 준비하고 있습니다. 처음 방문하면 약 14MB를 내려받아 10초 안팎 걸립니다.", "busy");
+/* ---------- 시작: 공개 기록이 있으면 그 탭을, 없으면 내 파일 화면을 연다 ---------- */
+async function init() {
+  $("#check-words").value = loadWords();
+  const [list, granted] = await Promise.all([loadIndex(), rememberedHandle()]);
+  publicList = list;
+  $("#source-tabs").classList.toggle("hidden", !publicList.length);
+  if (!publicList.length) {
+    showTab("local");
+    if (granted) await useHandle(remembered);
+    return;
+  }
+  publicOptions();
+  $("#view").setAttribute("role", "tabpanel");
+  const linked = publicList.find(entry => "#" + entry.start === location.hash);
+  if (granted && !linked) {
+    // 지난번에 연 내 파일을 다시 읽을 권한이 이미 있다(이 PC의 주인). 내 파일부터 보여 준다.
+    showTab("local");
+    showPublic(publicList[0].file);
+    await useHandle(remembered);
+  } else {
+    showTab("public");
+    await showPublic((linked || publicList[0]).file);
+  }
+}
+
 buttons();
-restore();
+init().catch(error => {
+  // 공개 기록을 못 읽어도 내 파일 화면은 쓸 수 있게 한다.
+  console.error(error);
+  showTab("local");
+});

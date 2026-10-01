@@ -1,10 +1,13 @@
-# '내 기록 보기' 배포: 동작 검사(verify.py)·기록 읽기 검사 → 정적 사이트 조립 → GitHub Pages
+# '매크로 기록 보기' 배포: 동작 검사(verify.py)·기록 읽기·공개본 검사 → 정적 사이트 조립 → GitHub Pages
 #
-# 사이트에는 데이터가 없다. 방문자가 자기 PC의 기록 워크북을 고르면 브라우저 안의 Pyodide(브라우저용 CPython)가
-# engine/과 web/workbook_view.py로 읽는다. 파일 내용은 이 저장소나 다른 서버로 가지 않는다.
+# 사이트에 싣는 기록은 records/의 공개본(JSON)뿐이다. 조립할 때 정해 둔 칸·형식인지, 개인정보로 보이는 말이
+# 없는지 다시 검사하고 하나라도 걸리면 배포하지 않는다(web/public_record.py, records/README.md).
+# 방문자가 자기 PC의 기록 워크북을 고르면 브라우저 안의 Pyodide(브라우저용 CPython)가
+# engine/과 web/workbook_view.py로 읽는다. 그 파일 내용은 이 저장소나 다른 서버로 가지 않는다.
 #
-#   build   두 검사가 모두 통과해야 조립한다.
+#   build   검사가 모두 통과해야 조립한다.
 #           Pyodide와 휠은 정해 둔 해시와 일치할 때만 싣는다(npm sha512, PyPI sha256).
+#           검사어는 저장소 비밀값 PUBLIC_CHECK_WORDS(선택, 한 줄에 하나). 로그에는 걸린 말을 남기지 않는다.
 #   deploy  조립한 _site/만 Pages로. 처음 한 번 Settings → Pages → Source를 "GitHub Actions"로 켜야 한다.
 #
 # 액션은 macro-regime-check와 같은 커밋 SHA로 고정한다. 올릴 때는 SHA와 주석의 버전을 함께 바꾼다.
@@ -40,7 +43,7 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: 동작 검사
         run: python -X utf8 verify.py
-      - name: 기록 읽기 검사
+      - name: 기록 읽기·공개본 검사
         run: python -X utf8 -m unittest discover -s web -p "test_*.py"
       - name: Pyodide 받기(해시 확인)
         run: |
@@ -53,7 +56,9 @@ jobs:
         run: |
           python -m pip download --no-deps --only-binary=:all: --require-hashes \
             -r web/requirements-web.txt -d .build/wheels
-      - name: 정적 사이트 조립
+      - name: 정적 사이트 조립(공개 기록 검사 포함)
+        env:
+          PUBLIC_CHECK_WORDS: ${{ secrets.PUBLIC_CHECK_WORDS }}
         run: python -X utf8 web/build.py --pyodide .build/pyodide/package --wheels .build/wheels --out _site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
