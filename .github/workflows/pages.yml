@@ -1,9 +1,9 @@
-# 웹 시연 배포: 동작 검사(verify.py) → 정적 사이트 조립 → GitHub Pages
+# '내 기록 보기' 배포: 동작 검사(verify.py)·기록 읽기 검사 → 정적 사이트 조립 → GitHub Pages
 #
-# 서버 없이 브라우저 안의 Pyodide(브라우저용 CPython)가 core.py·engine/을 그대로 실행한다.
-# 실행 기록은 방문자 브라우저(IndexedDB)에만 남고, 이 저장소나 다른 서버로 가지 않는다.
+# 사이트에는 데이터가 없다. 방문자가 자기 PC의 기록 워크북을 고르면 브라우저 안의 Pyodide(브라우저용 CPython)가
+# engine/과 web/workbook_view.py로 읽는다. 파일 내용은 이 저장소나 다른 서버로 가지 않는다.
 #
-#   build   동작 검사 22개가 통과해야 조립한다. 검증 기록 탭에는 이 실행의 결과가 실린다.
+#   build   두 검사가 모두 통과해야 조립한다.
 #           Pyodide와 휠은 정해 둔 해시와 일치할 때만 싣는다(npm sha512, PyPI sha256).
 #   deploy  조립한 _site/만 Pages로. 처음 한 번 Settings → Pages → Source를 "GitHub Actions"로 켜야 한다.
 #
@@ -40,6 +40,8 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: 동작 검사
         run: python -X utf8 verify.py
+      - name: 기록 읽기 검사
+        run: python -X utf8 -m unittest discover -s web -p "test_*.py"
       - name: Pyodide 받기(해시 확인)
         run: |
           mkdir -p .build/pyodide

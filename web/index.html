@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>매크로 기록 보기</title>
+  <meta name="description" content="내 PC의 매크로 기록 워크북을 브라우저 안에서 열어 뉴스 원문·점수·메모를 보는 화면. 파일은 어디에도 올리지 않습니다.">
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="viewer.css"><script src="viewer.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 이동</a>
+<header class="app-header">
+  <a class="brand" href="./" aria-label="매크로 기록 보기 처음으로"><span class="brand-symbol" aria-hidden="true">M<span>n</span></span><span>매크로 기록 자동화<small>내 기록 보기</small></span></a>
+  <a class="header-link" href="https://github.com/yun-macrolab/macro-notes-automation#readme" target="_blank" rel="noopener">프로젝트 소개 <span aria-hidden="true">↗</span></a>
+</header>
+<main id="main">
+<div id="message" role="status" aria-live="polite" tabindex="-1"></div>
+<div class="intro">
+  <div><h1>내 매크로 기록을<br>이 화면에서 봅니다.</h1><p class="lede">PC에 있는 기록 워크북(.xlsx)을 고르면 뉴스 원문과 점수, 메모를 보여 줍니다. <br>파일은 이 브라우저 안에서만 읽고 어디에도 올리지 않습니다.</p></div>
+  <div class="scope-note"><span class="badge">읽기 전용</span><p>Chrome·Edge에서는 엑셀에서 저장할 때마다 <br>몇 초 안에 화면이 바뀝니다.</p><small>다른 브라우저에서는 저장한 뒤 파일을 다시 고르세요.</small></div>
+</div>
+<div class="workspace-bar file-bar">
+  <div class="file-status"><span class="file-label">기록 파일</span><strong id="file-name">아직 열지 않았습니다</strong><span id="file-meta"></span></div>
+  <div class="run-actions">
+    <button class="primary" id="open">기록 파일 열기</button>
+    <button id="reopen" class="hidden">지난 파일 다시 열기</button>
+    <button id="reload" class="hidden">지금 다시 읽기</button>
+    <button id="close" class="hidden">닫기</button>
+  </div>
+  <input type="file" id="picker" accept=".xlsx,.xlsm" class="hidden" tabindex="-1" aria-hidden="true">
+</div>
+<div id="empty" class="empty"><div class="empty-mark" aria-hidden="true">＋</div><h2>기록 파일을 열어 주세요.</h2><p>Analysis·News DB 시트가 있는 v2 기록 워크북을 엽니다.<br>파일을 이 화면에 끌어다 놓아도 됩니다.</p></div>
+<div id="result" class="hidden">
+  <div class="run-heading"><span id="week-label"></span><span id="confirm-label"></span></div>
+  <dl class="summary">
+    <div><dt>듀레이션</dt><dd id="dur-total">—</dd><small id="dur-verdict"></small></div>
+    <div><dt>커브</dt><dd id="cur-total">—</dd><small id="cur-verdict"></small></div>
+    <div><dt>이번 주 뉴스</dt><dd id="news-week">—</dd><small id="news-total"></small></div>
+    <div><dt>직접 고친 점수</dt><dd id="edited">—</dd><small>자동 초안이 다시 덮지 않는 칸</small></div>
+  </dl>
+  <section class="conclusion" aria-labelledby="conclusion-title"><h2 id="conclusion-title">금주 결론</h2><p id="conclusion"></p></section>
+  <div class="review-layout">
+    <article class="sources" aria-labelledby="sources-title">
+      <div class="section-title"><h2 id="sources-title">뉴스 원문</h2><a class="jump-link" href="#analysis-panel">점수로 이동 ↓</a></div>
+      <label class="search-label" for="week-filter">기간</label><select id="week-filter"></select>
+      <label class="search-label" for="news-search">원문 검색</label><input id="news-search" type="search" placeholder="제목, 키워드, 내용 검색" autocomplete="off">
+      <div class="filters" role="group" aria-label="뉴스 유형"><button data-kind="all" aria-pressed="true">전체</button><button data-kind="지표" aria-pressed="false">지표</button><button data-kind="이벤트" aria-pressed="false">이벤트</button><button data-kind="의견" aria-pressed="false">의견</button></div>
+      <p class="list-meta" id="filter-count" aria-live="polite"></p><div id="news-list"></div>
+    </article>
+    <article class="analysis" id="analysis-panel" aria-labelledby="analysis-title" tabindex="-1">
+      <div class="section-title"><h2 id="analysis-title">주간 점수</h2><span class="badge subtle" id="state-badge">확정 전</span></div>
+      <p class="table-help">듀레이션 <b>+</b>는 금리 하락, 커브 <b>+</b>는 플래트닝 관점입니다. 괄호 안은 전주 점수입니다.</p>
+      <div class="table-scroll" role="region" aria-label="주간 점수표" tabindex="0"><table><caption class="sr-only">일곱 분석 항목의 듀레이션·커브 점수와 근거</caption><thead><tr><th scope="col">분석 항목</th><th scope="col">듀레이션</th><th scope="col">커브</th><th scope="col">근거와 참고</th></tr></thead><tbody id="rows"></tbody></table></div>
+      <details class="warning-details" id="divergence-box"><summary>복기 포인트 <span id="divergence-count"></span></summary><ul id="divergences"></ul></details>
+      <section class="side-box" aria-labelledby="memo-title"><h3 id="memo-title">메모</h3><dl id="memo"></dl></section>
+      <section class="side-box" aria-labelledby="flags-title"><h3 id="flags-title">FLAG</h3><dl id="flags"></dl></section>
+    </article>
+  </div>
+</div>
+<footer><span>매크로 기록 자동화</span><span>내 기록 보기 · 파일은 이 브라우저 밖으로 나가지 않습니다</span><a href="https://github.com/yun-macrolab/macro-notes-automation" target="_blank" rel="noopener">GitHub에서 보기 ↗</a></footer>
+</main>
+</body>
+</html>
