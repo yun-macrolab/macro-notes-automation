@@ -89,11 +89,25 @@ Windows 실행 파일, 종료 방법, 포트 변경은 [실행 안내](docs/실�
 
 ### 자동으로 올리기 (PC)
 
+기존 GitHub CLI 로그인이 있으면 별도 토큰을 만들지 않고 설정할 수 있습니다. 아래 `<주간 폴더>`는 실제 경로로 바꿉니다.
+
+```powershell
+python -X utf8 publish_records.py --folder "<주간 폴더>" --pattern "*_????????-????.xlsx" --auth gh --dry-run --yes
+python -X utf8 publish_records.py --yes
+.\Publish-Records.bat -Schedule
+```
+
+설정은 PC의 `.macro-notes/publish.json`에 저장됩니다. `--auth gh`는 실행 때 기존 GitHub CLI 인증을 읽으며 토큰 파일을 새로 저장하지 않습니다. 명시한 패턴은 원본 폴더 바로 아래 파일만 고릅니다. `YYYYMMDD-MMDD` 파일명 날짜를 우선하므로 `I1=TODAY()`의 계산값이 비거나 다른 주로 바뀌어도 원래 주간으로 게시합니다. v2 표식이 지워진 경우 전용 라벨로 확인하며 엑셀 자체는 수정하지 않습니다.
+
+예약은 매일 13:10부터 **30분 간격**, PC가 꺼져 있던 동안의 작업은 켜진 뒤 실행합니다. 실패하면 5분 간격으로 최대 3회 재시도하고 다음 정기 실행에서도 다시 비교합니다. 중복 실행은 차단하고, 저장 직후 15초 이내이거나 엑셀 잠금 파일이 있거나 읽는 중 바뀐 파일은 보류합니다. 오류를 건너뛰고 성공으로 기록하지 않으며 `.macro-notes/publish-error.txt`와 `publish.log`에 남깁니다. 성공하면 오류 표시를 지웁니다. 원본 생성(Claude Code)과 업로드는 별개라 이미 저장된 파일은 Claude 로그인 여부와 무관하게 반영됩니다.
+
+아래는 별도 토큰을 사용하는 경우의 설정 방법입니다.
+
 [`publish_records.py`](publish_records.py)는 PC의 주간 기록 폴더(하위 폴더 포함)를 훑어 공개본을 만들고, 이미 올라간 주와 비교해 **바뀐 주만** 커밋 하나로 저장소 `records/`에 올립니다. 브라우저의 '여러 주 한 번에'와 같은 코드·같은 검사를 쓰고(복사본·백업 파일 제외도 같음), 원본 엑셀은 PC 밖으로 나가지 않습니다. 진행 중인 주(확정 전)도 바뀌면 그대로 올라가 사이트에 '확정 전'으로 보입니다. 저장소의 공개본을 지우지는 않습니다.
 
 1. **GitHub 토큰(한 번)**: GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token. Repository access는 **Only select repositories → macro-notes-automation**, Repository permissions는 **Contents: Read and write**만 줍니다.
 2. **처음 실행**: 저장소 폴더의 `Publish-Records.bat`을 더블클릭하고 주간 기록 폴더 경로와 토큰을 붙여 넣습니다. 둘 다 이 PC의 `사용자 폴더\.macro-notes\`에 기억합니다. 주마다 결과(새로 올림·바뀜·그대로·건너뜀과 이유)를 보여 주고, `y`를 누르면 올립니다.
-3. **매일 자동**: 명령 프롬프트에서 `Publish-Records.bat -Schedule`(기본 매일 21:00, `-At 07:30`처럼 바꿈). 그 시각에 PC가 꺼져 있었으면 켜진 뒤 실행하고, 노트북 배터리로도 돕니다. 바뀐 주가 없으면 아무것도 하지 않습니다. 실패하면(토큰 만료 등) 알림 창을 띄우고, 실행 기록은 `.macro-notes\publish.log`에 남습니다(토큰·걸린 말은 남기지 않음). 끄기는 `Publish-Records.bat -Unschedule`.
+3. **자동 실행**: 명령 프롬프트에서 `Publish-Records.bat -Schedule`(기본 30분 간격, `-At 07:30 -EveryMinutes 60`처럼 바꿈). 그 시각에 PC가 꺼져 있었으면 켜진 뒤 실행하고, 노트북 배터리로도 돕니다. 바뀐 주가 없으면 아무것도 하지 않습니다. 실패 기록은 `.macro-notes\publish.log`와 `publish-error.txt`에 남습니다. 끄기는 `Publish-Records.bat -Unschedule`.
 
 미리 보기는 `Publish-Records.bat -DryRun`, 검사어는 `.macro-notes\check-words.txt`(한 줄에 하나)입니다. Fine-grained 토큰은 만료일이 있으니 길게 잡아 두고, 만료되면 `.macro-notes\token.txt`를 지우고 다시 실행해 새 토큰을 넣습니다. 이 토큰은 저장소 파일을 고칠 수 있으므로 다른 곳에 붙여 넣지 말고, PC를 바꾸거나 잃어버리면 GitHub에서 바로 폐기합니다.
 

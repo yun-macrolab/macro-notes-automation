@@ -71,7 +71,8 @@ class SchemaError(RuntimeError):
 
 
 def is_v2(ws):
-    return ws[SCHEMA_CELL].value == SCHEMA_V2
+    return (ws[SCHEMA_CELL].value == SCHEMA_V2 or ws["B26"].value == "채점 확정"
+            or ws["X7"].value == "초안(듀)")
 
 
 def has_draft_layout(ws):

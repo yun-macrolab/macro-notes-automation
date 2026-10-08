@@ -70,8 +70,8 @@ async function handle(message) {
   py.FS.writeFile(path, new Uint8Array(message.bytes));
   try {
     reply(message.id, message.type === "bulk"
-      ? view.public_from_workbook(path, JSON.stringify(message.words || []), message.label || "")
-      : view.read_json(path));
+      ? view.public_from_workbook(path, JSON.stringify(message.words || []), message.label || message.name || "")
+      : view.read_json(path, message.name || ""));
   } finally {
     py.FS.unlink(path);
   }

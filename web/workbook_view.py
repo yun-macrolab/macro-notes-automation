@@ -7,6 +7,8 @@ News DB 행을 고르는 규칙(5행부터, '예시' 행·비표준 요인 제�
 """
 import datetime as dt
 import json
+from pathlib import Path
+import re
 import zipfile
 
 import openpyxl
@@ -51,13 +53,26 @@ def _news(ws):
     return sorted(out, key=lambda n: (n["date"], n["sheet_row"]), reverse=True)
 
 
-def read(path):
+def filename_week(label):
+    """주간 파일명은 TODAY() 수식의 빈 값·다른 주 계산값보다 우선한다."""
+    name = Path(label.replace("\\", "/")).name
+    match = re.search(r"_(\d{8})-(\d{4})\.(?:xlsx|xlsm)$", name, re.I)
+    if not match:
+        return None
+    start = dt.datetime.strptime(match[1], "%Y%m%d").date()
+    end = start + dt.timedelta(days=6)
+    if start.weekday() != 0 or end.strftime("%m%d") != match[2]:
+        raise ValueError("주간 파일명 날짜가 월요일~일요일과 일치하지 않습니다.")
+    return start
+
+
+def read(path, label=""):
     state = sv.read_state(path)
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb["Analysis"]
-        draft_layout = sv.has_draft_layout(ws)
-        week = parse_date(ws["I1"].value)
+        draft_layout = sv.has_draft_layout(ws) or ws["B26"].value == "채점 확정"
+        week = filename_week(label or str(path)) or parse_date(ws["I1"].value)
         conclusion = _text(ws["D3"].value)
         digest = {r: _text(ws.cell(r, sv.COL["digest"]).value) for r in sv.ROWS}
         memo = [{"label": _text(ws.cell(r, 2).value), "value": _text(ws.cell(r, 3).value)} for r in sv.MEMO_ROWS]
@@ -81,12 +96,12 @@ def read(path):
     }
 
 
-def read_json(path):
+def read_json(path, label=""):
     """(성공 여부, JSON 문자열). 실패하면 화면에 보여 줄 문구를 담는다."""
     def failure(message):
         return False, json.dumps({"error": message}, ensure_ascii=False)
     try:
-        return True, json.dumps(read(path), ensure_ascii=False)
+        return True, json.dumps(read(path, label), ensure_ascii=False)
     except sv.SchemaError:
         return failure("v2 형식 기록 파일이 아닙니다. Analysis 시트 W1 칸이 'schema=v2'인 워크북을 여세요.")
     except KeyError:
@@ -106,7 +121,7 @@ def public_from_workbook(path, words_text="[]", label=""):
     if public_record.is_copy(label):
         return failure("copy", "복사본·백업·시험용 파일이라 건너뜁니다(이름이나 폴더 이름에 복사본·사본·백업·테스트·copy·backup·test).")
     try:
-        data = read(path)
+        data = read(path, label)
     except sv.SchemaError:
         return failure("v1", "예전 형식(v1) 워크북이라 건너뜁니다. 행 구성이 달라 아직 읽지 않습니다.")
     except KeyError:

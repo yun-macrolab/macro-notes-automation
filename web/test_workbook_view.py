@@ -64,6 +64,8 @@ class ReadRecord(unittest.TestCase):
             v1 = Path(tmp) / "v1.xlsx"
             wb = openpyxl.load_workbook(self.path)
             wb["Analysis"][sv.SCHEMA_CELL] = None
+            wb["Analysis"]["B26"] = None
+            wb["Analysis"]["X7"] = None
             wb.save(v1)
             no_news = Path(tmp) / "no_news.xlsx"
             wb = openpyxl.Workbook()
@@ -76,6 +78,35 @@ class ReadRecord(unittest.TestCase):
                 ok, text = workbook_view.read_json(str(path))
                 self.assertFalse(ok)
                 self.assertIn(phrase, json.loads(text)["error"])
+
+    def test_filename_week_overrides_today_formula_and_wrong_cached_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "record.xlsx"
+            for value in ("=TODAY()", "2026-10-08"):
+                wb = openpyxl.load_workbook(self.path)
+                wb["Analysis"]["I1"] = value
+                wb.save(path)
+                data = workbook_view.read(str(path), "기록_20260921-0927.xlsx")
+                self.assertEqual(data["week"]["start"], "2026-09-21")
+                ok, text = workbook_view.public_from_workbook(str(path), label="기록_20260921-0927.xlsx")
+                self.assertTrue(ok, text)
+                self.assertEqual(len(json.loads(text)["news"]), 8)
+
+    def test_week_filename_year_boundary_and_invalid_dates(self):
+        self.assertEqual(str(workbook_view.filename_week("기록_20261228-0103.xlsx")), "2026-12-28")
+        for label in ("기록_20260922-0928.xlsx", "기록_20260921-0928.xlsx", "기록_20261321-0927.xlsx"):
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                workbook_view.filename_week(label)
+
+    def test_missing_markers_keeps_v2_and_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "record.xlsx"
+            wb = openpyxl.load_workbook(self.path)
+            wb["Analysis"]["W1"] = None
+            wb["Analysis"]["W2"] = None
+            wb["Analysis"]["C26"] = "Y"
+            wb.save(path)
+            self.assertTrue(workbook_view.read(str(path))["state"]["confirmed"])
 
 
 if __name__ == "__main__":

@@ -221,7 +221,7 @@ class BulkExport(unittest.TestCase):
         self.assertEqual((record["week"]["start"], len(record["news"]), record["state"]["confirmed"]), ("2026-09-21", 8, False))
 
     def test_file_before_draft_layout(self):
-        ok, text = workbook_view.public_from_workbook(self.variant("before_draft.xlsx", {sv.DRAFT_CELL: None}))
+        ok, text = workbook_view.public_from_workbook(self.variant("before_draft.xlsx", {sv.DRAFT_CELL: None, "B26": None, "X7": None}))
         self.assertTrue(ok)
         self.assertIsNone(json.loads(text)["state"]["confirmed"])
 
@@ -230,7 +230,7 @@ class BulkExport(unittest.TestCase):
         broken.write_bytes(b"not a workbook")
         other = Path(self.tmp.name) / "other.xlsx"
         openpyxl.Workbook().save(other)
-        cases = {"v1": self.variant("v1.xlsx", {sv.SCHEMA_CELL: None}),
+        cases = {"v1": self.variant("v1.xlsx", {sv.SCHEMA_CELL: None, "B26": None, "X7": None}),
                  "no_week": self.variant("no_week.xlsx", {"I1": None}),
                  "not_record": str(other), "broken": str(broken)}
         for reason, path in cases.items():

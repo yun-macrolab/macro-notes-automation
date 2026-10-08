@@ -2,8 +2,8 @@
 """공개 기록 자동 올리기 — PC의 주간 기록 워크북 폴더를 훑어 공개본을 만들고, 바뀐 주만 저장소 records/에 올린다.
 
 브라우저의 '공개본 만들기 → 여러 주 한 번에'와 같은 코드·같은 검사를 쓴다(web/workbook_view.public_from_workbook).
-  - 검사에 걸린 주, 예전 형식(v1), 주간 날짜(I1)가 없는 파일, 이름이나 폴더 이름에 복사본·사본·백업·테스트·copy·backup·test가
-    든 파일은 건너뛴다. 같은 주 파일이 여럿이면 채점 확정 → 최근 저장 순. 진행 중인 주(확정 전)도 바뀌면 그대로 올린다.
+  - 예전 형식(v1)·복사본·백업은 제외한다. 검사 실패·날짜 누락·저장 중 파일은 전체 게시를 보류하고 실패를 기록한다.
+    주간 파일명 날짜 우선, 없으면 I1. 같은 주 파일이 여럿이면 채점 확정 → 최근 저장 순. 확정 전도 바뀌면 올린다.
   - 이미 올라간 주와 내용이 같으면(만든 시각만 다르면) 다시 올리지 않는다. 저장소의 공개본을 지우지는 않는다.
   - 바뀐 주는 GitHub API로 커밋 하나에 묶어 올린다. 그러면 배포(pages.yml)가 한 번 더 검사한 뒤 사이트에 싣는다.
 
@@ -13,19 +13,23 @@
   python -X utf8 publish_records.py --out 폴더  올리지 않고 공개본 파일만 그 폴더에 쓴다
 
 설정은 이 PC 사용자 폴더의 .macro-notes/에 둔다(저장소에 들어가지 않는다).
-  publish.json      기록 폴더·저장소
+  publish.json      기록 폴더·저장소·파일 패턴·인증 방식(gh면 기존 GitHub CLI 로그인 사용)
   token.txt         GitHub 토큰(환경 변수 MACRO_NOTES_TOKEN이 있으면 그것을 쓴다). 이 저장소 Contents 읽기·쓰기 권한이면 된다
   check-words.txt   검사어(선택, 한 줄에 하나)
   publish.log       실행 기록(토큰과 걸린 말은 남기지 않는다)
 """
 import argparse
+from contextlib import contextmanager
 import base64
 import datetime as dt
 import getpass
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -40,7 +44,7 @@ API = "https://api.github.com"
 HOME = Path.home() / ".macro-notes"
 URLOPEN = urllib.request.urlopen       # 검사에서 가짜 GitHub로 바꾼다
 REASONS = {"copy": "복사본·백업 파일", "v1": "예전 형식(v1)", "no_week": "주간 날짜 없음(I1 칸)", "not_record": "기록 워크북 아님",
-           "broken": "읽지 못함", "blocked": "검사에 걸림"}
+           "broken": "읽지 못함", "blocked": "검사에 걸림", "busy": "저장 중이거나 엑셀에서 열려 있음"}
 
 
 class PublishError(Exception):
@@ -50,20 +54,30 @@ class PublishError(Exception):
 
 
 # ---------- 워크북 → 공개본 ----------
-def workbooks(folder):
+def workbooks(folder, pattern=None):
     """폴더(하위 폴더 포함)의 엑셀 파일. 엑셀이 열어 둔 동안 생기는 '~$' 잠금 파일은 뺀다."""
-    return sorted(p for p in folder.rglob("*")
-                  if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm") and not p.name.startswith("~$"))
+    paths = folder.glob(pattern) if pattern else folder.rglob("*")
+    return sorted(p for p in paths
+                  if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm") and not p.name.startswith("~")
+                  and not any(part.startswith((".", "_")) or part == "runtime"
+                              for part in p.relative_to(folder).parts[:-1]))
 
 
-def collect(folder, words=()):
+def collect(folder, words=(), pattern=None):
     """워크북마다 공개본을 만든다 → (파일별 결과, {"YYYY-MM-DD.json": 쓸 결과})."""
     rows = []
-    for path in workbooks(folder):
+    for path in workbooks(folder, pattern):
         label = str(path.relative_to(folder))
+        before = path.stat()
+        if path.with_name("~$" + path.name).exists() or time.time() - before.st_mtime < 15:
+            rows.append({"label": label, "ok": False, "mtime": before.st_mtime, "reason": "busy"})
+            continue
         ok, text = workbook_view.public_from_workbook(str(path), json.dumps(list(words), ensure_ascii=False), label)
         body = json.loads(text)
-        row = {"label": label, "ok": ok, "mtime": path.stat().st_mtime}
+        after = path.stat()
+        if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+            ok, body = False, {"reason": "busy"}
+        row = {"label": label, "ok": ok, "mtime": after.st_mtime}
         if ok:
             row.update(text=text, record=body)
         else:
@@ -116,8 +130,15 @@ class GitHub:
         if self.token:
             request.add_header("Authorization", f"Bearer {self.token}")
         try:
-            with URLOPEN(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8") or "null")
+            for attempt in range(3):
+                try:
+                    with URLOPEN(request, timeout=20) as response:
+                        return json.loads(response.read().decode("utf-8") or "null")
+                except (urllib.error.URLError, TimeoutError) as error:
+                    retryable = not isinstance(error, urllib.error.HTTPError) or error.code in (429, 500, 502, 503, 504)
+                    if method != "GET" or not retryable or attempt == 2:
+                        raise
+                    time.sleep(2 ** attempt)
         except urllib.error.HTTPError as error:
             try:
                 detail = json.loads(error.read().decode("utf-8")).get("message", "")
@@ -127,12 +148,17 @@ class GitHub:
             raise PublishError(f"GitHub {method} {path.split('?')[0]}: HTTP {error.code} {detail}{hint}", error.code) from None
         except urllib.error.URLError as error:
             raise PublishError(f"GitHub에 연결하지 못했습니다: {error.reason}") from None
+        except TimeoutError:
+            raise PublishError("GitHub 응답 시간 초과. 다음 예약 실행에서 다시 비교합니다.") from None
 
     def snapshot(self):
         """지금 main의 커밋·트리와 records/의 공개본 {이름: blob sha}."""
         head = self.call("GET", f"/git/ref/heads/{self.branch}")["object"]["sha"]
         tree = self.call("GET", f"/git/commits/{head}")["tree"]["sha"]
-        listing = self.call("GET", f"/git/trees/{tree}?recursive=1")["tree"]
+        result = self.call("GET", f"/git/trees/{tree}?recursive=1")
+        if result.get("truncated"):
+            raise PublishError("GitHub 파일 목록이 잘려 비교를 중단했습니다.")
+        listing = result["tree"]
         blobs = {entry["path"][len("records/"):]: entry["sha"] for entry in listing
                  if entry["type"] == "blob" and entry["path"].startswith("records/") and entry["path"].endswith(".json")
                  and "/" not in entry["path"][len("records/"):]}
@@ -146,7 +172,10 @@ class GitHub:
         new_tree = self.call("POST", "/git/trees", {"base_tree": tree, "tree": [
             {"path": "records/" + name, "mode": "100644", "type": "blob", "content": text}
             for name, text in sorted(files.items())]})["sha"]
-        commit = self.call("POST", "/git/commits", {"message": message, "tree": new_tree, "parents": [head]})["sha"]
+        owner = self.repo.split("/")[0]
+        identity = {"name": owner, "email": f"{owner}@users.noreply.github.com"}
+        commit = self.call("POST", "/git/commits", {"message": message, "tree": new_tree, "parents": [head],
+                                                  "author": identity, "committer": identity})["sha"]
         self.call("PATCH", f"/git/refs/heads/{self.branch}", {"sha": commit, "force": False})
         return commit
 
@@ -194,14 +223,53 @@ def read_words():
     return [word.strip() for word in words if word.strip()]
 
 
-def read_token():
+def read_token(auth=None):
     token = os.environ.get("MACRO_NOTES_TOKEN", "").strip()
     if not token:
         try:
             token = (HOME / "token.txt").read_text(encoding="utf-8-sig").strip()
         except OSError:
             token = ""
+    if not token and auth == "gh":
+        gh = shutil.which("gh") or str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "GitHub CLI/gh.exe")
+        try:
+            result = subprocess.run([gh, "auth", "token", "--hostname", "github.com"],
+                                    capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            raise PublishError("GitHub CLI 인증을 읽지 못했습니다. gh auth status로 확인하세요.") from None
+        if result.returncode or not result.stdout.strip():
+            raise PublishError("GitHub CLI 로그인이 필요합니다. gh auth login으로 로그인하세요.")
+        token = result.stdout.strip()
     return token or None
+
+
+@contextmanager
+def publishing_lock():
+    """OS 잠금은 프로세스 종료 때 해제된다. 두 실행이 동시에 게시하지 않는다."""
+    HOME.mkdir(parents=True, exist_ok=True)
+    with (HOME / "publish.lock").open("a+b") as handle:
+        handle.seek(0, 2)
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise PublishError("다른 업로드가 실행 중입니다. 다음 예약에서 재시도합니다.") from None
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def save_token(token):
@@ -258,13 +326,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="PC의 주간 기록 워크북 → 공개본 → 저장소 records/(바뀐 주만)")
     parser.add_argument("--folder", type=Path, help="주간 기록 워크북 폴더(한 번 주면 기억한다)")
     parser.add_argument("--repo", help=f"올릴 저장소(기본 {DEFAULT_REPO})")
+    parser.add_argument("--pattern", help="원본 폴더에서 고를 파일 패턴(하위 폴더는 **를 쓴 경우만)")
+    parser.add_argument("--auth", choices=["gh", "token"], help="기존 GitHub CLI 로그인 또는 별도 토큰 사용")
     parser.add_argument("--dry-run", action="store_true", help="무엇이 바뀌는지만 보기")
     parser.add_argument("--yes", action="store_true", help="묻지 않고 올리기(예약 작업용)")
     parser.add_argument("--out", type=Path, help="올리지 않고 공개본 파일만 이 폴더에 쓰기")
     args = parser.parse_args(argv)
     interactive = not args.yes and sys.stdin.isatty()
     try:
-        return run(args, interactive)
+        with publishing_lock():
+            return run(args, interactive)
     except PublishError as error:
         print(f"올리지 못했습니다: {error}", file=sys.stderr)
         log(f"실패: {error}")
@@ -286,16 +357,25 @@ def run(args, interactive):
     if not folder.is_dir():
         raise PublishError(f"폴더가 없습니다: {folder}")
     repo = args.repo or settings.get("repo") or DEFAULT_REPO
-    if settings.get("folder") != str(folder) or settings.get("repo") != repo:
+    pattern = args.pattern or settings.get("pattern")
+    auth = args.auth or settings.get("auth", "token")
+    updated = {"folder": str(folder), "repo": repo, "pattern": pattern, "auth": auth}
+    if settings != updated:
         HOME.mkdir(parents=True, exist_ok=True)
-        (HOME / "publish.json").write_text(json.dumps({"folder": str(folder), "repo": repo}, ensure_ascii=False, indent=2),
+        (HOME / "publish.json").write_text(json.dumps(updated, ensure_ascii=False, indent=2),
                                            encoding="utf-8")
 
     print(f"기록 폴더: {folder}")
-    rows, picked = collect(folder, read_words())
+    rows, picked = collect(folder, read_words(), pattern)
     if not rows:
         print("엑셀 기록 파일(.xlsx·.xlsm)이 없습니다.")
-        return 0
+        raise PublishError("대상 엑셀 파일이 없습니다. 원본 폴더와 파일 패턴을 확인하세요.")
+    failures = [row for row in rows if not row["ok"] and row["reason"] not in ("copy", "v1", "not_record")]
+    if failures:
+        report(rows, picked, {})
+        raise PublishError(f"공개본 생성 실패 {len(failures)}개. 이번 업로드를 보류하고 다음 예약에서 재시도합니다.")
+    if not picked:
+        raise PublishError("공개 가능한 v2 주간 기록이 없습니다.")
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         for name, row in picked.items():
@@ -303,7 +383,7 @@ def run(args, interactive):
         report(rows, picked, {name: f"{args.out / name}에 씀" for name in picked})
         return 0
 
-    github = GitHub(repo, read_token())
+    github = GitHub(repo, read_token(auth))
     head, tree, states, upload = plan(github, picked)
     report(rows, picked, states)
     skipped = sum(1 for row in rows if not row["ok"])
@@ -329,7 +409,7 @@ def run(args, interactive):
     try:
         sha = github.commit(head, tree, upload, commit_message(states, upload))
     except PublishError as error:
-        if error.status != 422:          # 그사이 main이 바뀌었으면 한 번만 다시 비교해 올린다
+        if error.status not in (409, 422):  # 그사이 main이 바뀌었으면 한 번만 다시 비교해 올린다
             raise
         head, tree, states, upload = plan(github, picked)
         if not upload:
