@@ -215,9 +215,12 @@ class Publish(unittest.TestCase):
         self.assertIn("예상하지 못한 문제", (pub.HOME / "publish.log").read_text(encoding="utf-8"))
 
     def test_out_folder(self):
+        pub.HOME.mkdir(parents=True)
+        (pub.HOME / "publish.json").write_text(json.dumps({"source_task": "DailyProducer"}), encoding="utf-8")
         code, out = self.run_main("--out", str(self.work / "out"), github=FakeGitHub())
         self.assertEqual(code, 0, out)
         self.assertEqual(sorted(p.name for p in (self.work / "out").iterdir()), ["2026-09-14.json", "2026-09-21.json"])
+        self.assertEqual(pub.read_json(pub.HOME / "publish.json")["source_task"], "DailyProducer")
 
     def test_root_pattern_excludes_backups_and_other_projects(self):
         self.variant("기록_20260921-0927.xlsx", {"I1": "=TODAY()"})

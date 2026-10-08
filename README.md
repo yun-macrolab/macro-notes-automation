@@ -103,6 +103,8 @@ python -X utf8 publish_records.py --yes
 
 아래는 별도 토큰을 사용하는 경우의 설정 방법입니다.
 
+엑셀을 만드는 예약 작업이 따로 있으면 `.macro-notes/publish.json`의 `source_task`에 그 작업 이름을 지정할 수 있습니다. `-Yes` 업로드는 해당 작업이 실행 중이면 게시를 보류하고 로그에 남깁니다. 원본 작업의 최종 검증이 성공한 뒤 `Start-ScheduledTask -TaskName MacroNotesPublish`를 호출하면 완성된 파일이 이어서 반영됩니다. 업로드 로그와 배포 완료 여부는 별도로 확인합니다.
+
 [`publish_records.py`](publish_records.py)는 PC의 주간 기록 폴더(하위 폴더 포함)를 훑어 공개본을 만들고, 이미 올라간 주와 비교해 **바뀐 주만** 커밋 하나로 저장소 `records/`에 올립니다. 브라우저의 '여러 주 한 번에'와 같은 코드·같은 검사를 쓰고(복사본·백업 파일 제외도 같음), 원본 엑셀은 PC 밖으로 나가지 않습니다. 진행 중인 주(확정 전)도 바뀌면 그대로 올라가 사이트에 '확정 전'으로 보입니다. 저장소의 공개본을 지우지는 않습니다.
 
 1. **GitHub 토큰(한 번)**: GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token. Repository access는 **Only select repositories → macro-notes-automation**, Repository permissions는 **Contents: Read and write**만 줍니다.

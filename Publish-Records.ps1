@@ -33,6 +33,20 @@ function Show-Failure([string]$text) {
     Set-Content -LiteralPath (Join-Path $directory 'publish-error.txt') -Value "$(Get-Date -Format o) $text" -Encoding UTF8
 }
 try {
+    # Optional producer task: do not publish a workbook between draft and final conclusion.
+    $configPath = Join-Path (Split-Path $logPath) 'publish.json'
+    if ($Yes -and (Test-Path -LiteralPath $configPath)) {
+        $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($config.source_task) {
+            # The producer may have just triggered this task before exiting.
+            Start-Sleep -Seconds 2
+            $producer = Get-ScheduledTask -TaskName $config.source_task -ErrorAction Stop
+            if ($producer.State -eq 'Running') {
+                Add-Content -LiteralPath $logPath -Value "$(Get-Date -Format o) deferred: source task is still running" -Encoding UTF8
+                exit 0
+            }
+        }
+    }
     $pythonCandidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs/Python/Python313/python.exe')
     )

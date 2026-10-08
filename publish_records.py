@@ -359,7 +359,7 @@ def run(args, interactive):
     repo = args.repo or settings.get("repo") or DEFAULT_REPO
     pattern = args.pattern or settings.get("pattern")
     auth = args.auth or settings.get("auth", "token")
-    updated = {"folder": str(folder), "repo": repo, "pattern": pattern, "auth": auth}
+    updated = {**settings, "folder": str(folder), "repo": repo, "pattern": pattern, "auth": auth}
     if settings != updated:
         HOME.mkdir(parents=True, exist_ok=True)
         (HOME / "publish.json").write_text(json.dumps(updated, ensure_ascii=False, indent=2),
