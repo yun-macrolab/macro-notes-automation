@@ -1,9 +1,11 @@
 # Publish public weekly records from this PC (runs publish_records.py).
 #   Publish-Records.bat              first run asks for the folder and token, shows the weeks, then asks before upload
 #   Publish-Records.bat -DryRun      only show what would change
-#   Publish-Records.bat -Schedule    check every 30 minutes from 13:10 (customize -At / -EveryMinutes)
+#   Publish-Records.bat -Schedule    check every 6 hours from 12:00 (12:00, 18:00, 00:00, 06:00; customize -At / -EveryMinutes)
 #   Publish-Records.bat -Unschedule  remove the daily task
-param([switch]$Yes, [switch]$DryRun, [switch]$Schedule, [switch]$Unschedule, [string]$At = '13:10', [int]$EveryMinutes = 30)
+# A workbook that is open in Excel or was saved less than 10 minutes ago is held, not failed: the other weeks are
+# published and the run exits 0. A -Yes run looks again after 5 minutes, up to 3 times, before leaving a week out.
+param([switch]$Yes, [switch]$DryRun, [switch]$Schedule, [switch]$Unschedule, [string]$At = '12:00', [int]$EveryMinutes = 360)
 $ErrorActionPreference = 'Stop'
 $taskName = 'MacroNotesPublish'
 $logPath = Join-Path $HOME '.macro-notes\publish.log'
@@ -15,12 +17,20 @@ if ($Unschedule) {
 if ($Schedule) {
     $argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Yes"
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument -WorkingDirectory $PSScriptRoot
-    $trigger = New-ScheduledTaskTrigger -Daily -At $At
     if ($EveryMinutes -lt 5 -or $EveryMinutes -gt 1440) { throw 'EveryMinutes must be between 5 and 1440.' }
-    $repeated = New-ScheduledTaskTrigger -Once -At $At -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes) -RepetitionDuration (New-TimeSpan -Days 1)
-    $trigger.Repetition = $repeated.Repetition
-    # Catch up on wake, run on battery, retry failures, stop a stuck run after 10 minutes.
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
+    if ($EveryMinutes -ge 60 -and 1440 % $EveryMinutes -eq 0) {
+        # One daily trigger per slot. A repetition is counted from the actual start, so after a late catch-up
+        # run (PC asleep at 12:00) every later run of that day would move away from the fixed slots.
+        $first = [datetime]$At
+        $trigger = 0..(1440 / $EveryMinutes - 1) | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $first.AddMinutes($EveryMinutes * $_) }
+    } else {
+        $trigger = New-ScheduledTaskTrigger -Daily -At $At
+        $repeated = New-ScheduledTaskTrigger -Once -At $At -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes) -RepetitionDuration (New-TimeSpan -Days 1)
+        $trigger.Repetition = $repeated.Repetition
+    }
+    # Catch up on wake, run on battery, retry failures, stop a stuck run after 30 minutes
+    # (a run may wait 3 x 5 minutes for a held workbook before it publishes).
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'macro-notes-automation: publish changed weekly records (publish_records.py --yes)' -Force | Out-Null
     Write-Host "Registered scheduled task $taskName (every $EveryMinutes minutes, starting at $At). Log: $logPath"
     exit 0
@@ -38,9 +48,14 @@ try {
     if ($Yes -and (Test-Path -LiteralPath $configPath)) {
         $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($config.source_task) {
-            # The producer may have just triggered this task before exiting.
-            Start-Sleep -Seconds 2
-            $producer = Get-ScheduledTask -TaskName $config.source_task -ErrorAction Stop
+            # The producer triggers this task just before it exits, so it can still show as Running.
+            # Look every 2 seconds for up to 30 seconds: a deferred run is not retried, and the
+            # next scheduled run may be 6 hours away.
+            for ($look = 0; $look -lt 15; $look++) {
+                Start-Sleep -Seconds 2
+                $producer = Get-ScheduledTask -TaskName $config.source_task -ErrorAction Stop
+                if ($producer.State -ne 'Running') { break }
+            }
             if ($producer.State -eq 'Running') {
                 Add-Content -LiteralPath $logPath -Value "$(Get-Date -Format o) deferred: source task is still running" -Encoding UTF8
                 exit 0

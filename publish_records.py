@@ -2,8 +2,11 @@
 """공개 기록 자동 올리기 — PC의 주간 기록 워크북 폴더를 훑어 공개본을 만들고, 바뀐 주만 저장소 records/에 올린다.
 
 브라우저의 '공개본 만들기 → 여러 주 한 번에'와 같은 코드·같은 검사를 쓴다(web/workbook_view.public_from_workbook).
-  - 예전 형식(v1)·복사본·백업은 제외한다. 검사 실패·날짜 누락·저장 중 파일은 전체 게시를 보류하고 실패를 기록한다.
+  - 예전 형식(v1)·복사본·백업은 제외한다. 검사 실패·날짜 누락·읽지 못한 파일이 있으면 전체 게시를 멈추고 실패를 기록한다.
     주간 파일명 날짜 우선, 없으면 I1. 같은 주 파일이 여럿이면 채점 확정 → 최근 저장 순. 확정 전도 바뀌면 올린다.
+  - 엑셀에서 열려 있거나 저장한 지 10분이 안 된 파일은 실패가 아니라 보류다. 그 주만 빼고 나머지를 올린다(종료코드 0).
+    예약 실행(--yes)은 5분 뒤 다시 보기를 3번까지 한다. 원본 작업이 방금 끝났다는 표식(source-done, 5분 안)이 있으면
+    그 실행만 저장 뒤 15초부터 올리고 표식을 지운다.
   - 이미 올라간 주와 내용이 같으면(만든 시각만 다르면) 다시 올리지 않는다. 저장소의 공개본을 지우지는 않는다.
   - 바뀐 주는 GitHub API로 커밋 하나에 묶어 올린다. 그러면 배포(pages.yml)가 한 번 더 검사한 뒤 사이트에 싣는다.
 
@@ -17,6 +20,7 @@
   token.txt         GitHub 토큰(환경 변수 MACRO_NOTES_TOKEN이 있으면 그것을 쓴다). 이 저장소 Contents 읽기·쓰기 권한이면 된다
   check-words.txt   검사어(선택, 한 줄에 하나)
   publish.log       실행 기록(토큰과 걸린 말은 남기지 않는다)
+  source-done       원본 엑셀을 만드는 작업이 끝나며 쓰는 표식(선택, 내용은 보지 않고 쓰인 시각만 본다)
 """
 import argparse
 from contextlib import contextmanager
@@ -43,8 +47,17 @@ BRANCH = "main"
 API = "https://api.github.com"
 HOME = Path.home() / ".macro-notes"
 URLOPEN = urllib.request.urlopen       # 검사에서 가짜 GitHub로 바꾼다
+SETTLE = 600                           # 마지막 저장 뒤 이만큼(초) 지나야 올린다 — 점수를 고치는 도중의 저장이 공개되지 않게
+SETTLE_AFTER_SOURCE = 15               # 원본 작업이 방금 끝났으면(표식 source-done) 이만큼만 본다
+SOURCE_DONE_MAX_AGE = 300              # 표식은 실행 시작 전 이 시간(초) 안에 쓰인 것만 믿는다
+RECHECK_WAIT, RECHECKS = 300, 3        # 보류된 파일이 있으면 같은 실행 안에서 이 간격(초)으로 이만큼 다시 본다
+WAIT = time.sleep                      # 검사에서 가짜 기다림으로 바꾼다
+CLOCK_SLACK = 120                      # 저장 시각이 이보다 더 미래면 시계가 어긋난 것 — 저장 직후로 보지 않는다(풀리지 않는 보류가 된다)
+HELD_LONG = 86400                      # 잠금 파일이 이보다 오래 남은 주는 로그에 따로 적는다(엑셀이 죽으며 남긴 잠금 파일일 수 있다)
+LEFT_OUT = ("copy", "v1", "not_record")  # 읽어 보니 어차피 빼는 파일 — 실패가 아니다
+HELD = "엑셀에서 열려 있음·저장 직후"
 REASONS = {"copy": "복사본·백업 파일", "v1": "예전 형식(v1)", "no_week": "주간 날짜 없음(I1 칸)", "not_record": "기록 워크북 아님",
-           "broken": "읽지 못함", "blocked": "검사에 걸림", "busy": "저장 중이거나 엑셀에서 열려 있음"}
+           "broken": "읽지 못함", "blocked": "검사에 걸림", "busy": HELD}
 
 
 class PublishError(Exception):
@@ -63,33 +76,72 @@ def workbooks(folder, pattern=None):
                               for part in p.relative_to(folder).parts[:-1]))
 
 
-def collect(folder, words=(), pattern=None):
-    """워크북마다 공개본을 만든다 → (파일별 결과, {"YYYY-MM-DD.json": 쓸 결과})."""
+def collect(folder, words=(), pattern=None, settle=SETTLE):
+    """워크북마다 공개본을 만든다 → (파일별 결과, {"YYYY-MM-DD.json": 쓸 결과}).
+    엑셀에서 열려 있거나 저장한 지 settle초가 안 됐거나 읽는 중 바뀐 파일은 보류한다(reason busy, 까닭은 held_by).
+    보류한 파일의 주는 같은 주의 다른 파일이 있어도 고르지 않는다(보류한 파일이 그 주의 최신일 수 있다)."""
     rows = []
     for path in workbooks(folder, pattern):
         label = str(path.relative_to(folder))
         before = path.stat()
-        if path.with_name("~$" + path.name).exists() or time.time() - before.st_mtime < 15:
-            rows.append({"label": label, "ok": False, "mtime": before.st_mtime, "reason": "busy"})
+        # 복사본·백업은 어차피 빼니 보류로 세지 않는다. 보류한 파일은 공개본을 만들려고 읽지 않는다(엑셀이 저장하는 순간과 겹치지 않게)
+        held = None if workbook_view.public_record.is_copy(label) else held_by(path, before, settle)
+        if held:
+            rows.append({"label": label, "ok": False, "mtime": before.st_mtime, "reason": "busy", **held,
+                         "week": held_week(path, label)})
             continue
         ok, text = workbook_view.public_from_workbook(str(path), json.dumps(list(words), ensure_ascii=False), label)
         body = json.loads(text)
         after = path.stat()
-        if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
-            ok, body = False, {"reason": "busy"}
+        if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size) and (
+                ok or body.get("reason") not in LEFT_OUT):               # 어차피 빼는 파일은 읽는 중 바뀌어도 그대로 뺀다
+            ok, body = False, {"reason": "busy", "held_by": "changed", "week": body.get("week")}
         row = {"label": label, "ok": ok, "mtime": after.st_mtime}
         if ok:
             row.update(text=text, record=body)
         else:
-            row.update(reason=body.get("reason", "broken"), findings=body.get("findings", []), week=body.get("week"))
+            row.update(reason=body.get("reason", "broken"), findings=body.get("findings", []), week=body.get("week"),
+                       held_by=body.get("held_by"))
         rows.append(row)
+    held_names = {row["week"]["start"] + ".json" for row in rows if row.get("reason") == "busy" and row["week"]}
     picked = {}
     for row in rows:
         if row["ok"]:
             name = row["record"]["week"]["start"] + ".json"
-            if name not in picked or preferred(row, picked[name]):
+            row["held"] = name in held_names
+            if not row["held"] and (name not in picked or preferred(row, picked[name])):
                 picked[name] = row
     return rows, picked
+
+
+def held_by(path, stat, settle):
+    """보류할 까닭 — 엑셀이 열어 둔 파일('~$' 잠금 파일, held_for는 그 파일이 생긴 지 몇 초)이면 open,
+    저장한 지 settle초가 안 됐으면 saved(wait는 남은 초), 아니면 None."""
+    now = time.time()
+    try:
+        return {"held_by": "open", "held_for": now - path.with_name("~$" + path.name).stat().st_mtime}
+    except OSError:
+        pass
+    age = now - stat.st_mtime
+    return {"held_by": "saved", "wait": settle - age} if -CLOCK_SLACK < age < settle else None
+
+
+def held_week(path, label):
+    """보류한 파일의 주 {"start", "end"} — 공개본과 같은 순서(파일명 날짜, 없으면 I1 칸). 알 수 없으면 None."""
+    try:
+        day = workbook_view.filename_week(label)
+        if day is None:
+            wb = workbook_view.openpyxl.load_workbook(path, read_only=True, data_only=True)
+            try:
+                day = workbook_view.parse_date(wb["Analysis"]["I1"].value)
+            finally:
+                wb.close()
+        if day is None:
+            return None
+        start, end = workbook_view.week_bounds(day)
+        return {"start": start.isoformat(), "end": end.isoformat()}
+    except Exception:                   # 저장 중이라 못 읽는 파일도 여기로 온다 — 주를 모른 채 보류만 한다
+        return None
 
 
 def preferred(a, b):
@@ -261,7 +313,8 @@ def publishing_lock():
                 import fcntl
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            raise PublishError("다른 업로드가 실행 중입니다. 다음 예약에서 재시도합니다.") from None
+            raise PublishError(f"다른 업로드가 실행 중입니다(보류된 파일을 기다리는 중이면 최대 {RECHECK_WAIT * RECHECKS // 60}분). "
+                               "다음 예약에서 재시도합니다.") from None
         try:
             yield
         finally:
@@ -301,14 +354,37 @@ def describe(row, picked, states):
     week = record["week"] if record else row.get("week")
     when = f"{week['start']} ~ {week['end'][5:]}" if week else "주간 —"
     if not row["ok"]:
+        if row["reason"] == "busy":
+            return f"  {when}  {row['label']}  → 보류 · {held_text(row)}"
         return f"  {when}  {row['label']}  → 건너뜀 · {REASONS.get(row['reason'], '읽지 못함')}"
     name = record["week"]["start"] + ".json"
     state = record["state"]
     confirmed = {True: "채점 확정", False: "확정 전"}.get(state["confirmed"], "확정 표시 없음")
     result = states.get(name, "올릴 공개본") if picked.get(name) is row else "같은 주의 다른 파일을 씀"
+    if row.get("held"):
+        result = "보류 · 같은 주의 다른 파일이 " + HELD
     return (f"  {when}  {row['label']}  뉴스 {len(record['news'])}건 · 듀 {score(state['dur']['total'])} "
             f"{state['dur']['verdict']} · 커브 {score(state['cur']['total'])} {state['cur']['verdict']} · {confirmed}"
             f"  → {result}")
+
+
+def held_text(row):
+    """보류한 까닭을 화면에 — 열려 있음(잠금 파일이 오래 남았으면 그것도) · 저장 직후(언제부터 올릴 수 있는지) · 읽는 중 바뀜."""
+    if row.get("held_by") == "open":
+        left = f"(잠금 파일 {int(row['held_for'] // 86400)}일 전부터 · 엑셀을 닫았는데도 남아 있으면 ~$ 파일을 지우세요)"
+        return "엑셀에서 열려 있음" + (left if row["held_for"] > HELD_LONG else "")
+    if row.get("held_by") == "saved":
+        return f"저장 직후(약 {max(1, round(row['wait'] / 60))}분 뒤부터 올릴 수 있음)"
+    return "읽는 중 바뀜" if row.get("held_by") == "changed" else HELD
+
+
+def held_note(held):
+    """로그·화면 끝에 붙이는 보류 요약. 잠금 파일이 하루 넘게 남은 주는 따로 적는다 — 보류는 실패 표시가 없어 로그로만 드러난다."""
+    if not held:
+        return ""
+    long = sorted(f"{row['week']['start'] if row['week'] else '주간 —'}({int(row['held_for'] // 86400)}일 전부터)"
+                  for row in held if row.get("held_by") == "open" and row["held_for"] > HELD_LONG)
+    return f" · 보류 {len(held)}개({HELD})" + (" · 잠금 파일이 하루 넘게 남은 주: " + ", ".join(long) if long else "")
 
 
 def report(rows, picked, states):
@@ -335,7 +411,11 @@ def main(argv=None):
     interactive = not args.yes and sys.stdin.isatty()
     try:
         with publishing_lock():
-            return run(args, interactive)
+            try:
+                return run(args, interactive)
+            finally:
+                if not (args.dry_run or args.out):      # 올리는 실행만 표식을 쓴 것으로 치고 지운다(성공·실패 무관)
+                    clear_source_done()
     except PublishError as error:
         print(f"올리지 못했습니다: {error}", file=sys.stderr)
         log(f"실패: {error}")
@@ -366,16 +446,17 @@ def run(args, interactive):
                                            encoding="utf-8")
 
     print(f"기록 폴더: {folder}")
-    rows, picked = collect(folder, read_words(), pattern)
-    if not rows:
-        print("엑셀 기록 파일(.xlsx·.xlsm)이 없습니다.")
-        raise PublishError("대상 엑셀 파일이 없습니다. 원본 폴더와 파일 패턴을 확인하세요.")
-    failures = [row for row in rows if not row["ok"] and row["reason"] not in ("copy", "v1", "not_record")]
-    if failures:
-        report(rows, picked, {})
-        raise PublishError(f"공개본 생성 실패 {len(failures)}개. 이번 업로드를 보류하고 다음 예약에서 재시도합니다.")
+    token = None if args.out else read_token(auth)      # 기다리기 전에 읽는다 — 인증을 못 읽으면 15분 뒤가 아니라 바로 멈추게
+    # 다시 보기는 올릴 수 있는 예약 실행(--yes, 토큰 있음)만 — 사람이 직접 돌리거나 올리지 않는 실행은 기다리지 않는다
+    rows, picked, held = gather(folder, pattern, RECHECKS if args.yes and token and not (args.dry_run or args.out) else 0)
+    note = held_note(held)
     if not picked:
-        raise PublishError("공개 가능한 v2 주간 기록이 없습니다.")
+        if not held:
+            raise PublishError("공개 가능한 v2 주간 기록이 없습니다.")
+        report(rows, picked, {})
+        print(f"\n올릴 공개본이 없습니다{note}. 다음 실행에서 다시 봅니다.")
+        log(f"올릴 공개본 없음{note}")
+        return 0
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         for name, row in picked.items():
@@ -383,14 +464,14 @@ def run(args, interactive):
         report(rows, picked, {name: f"{args.out / name}에 씀" for name in picked})
         return 0
 
-    github = GitHub(repo, read_token(auth))
+    github = GitHub(repo, token)
     head, tree, states, upload = plan(github, picked)
     report(rows, picked, states)
-    skipped = sum(1 for row in rows if not row["ok"])
-    print(f"\n공개본 {len(picked)}주 · 올릴 것 {len(upload)}주 · 건너뛴 파일 {skipped}개")
+    skipped = sum(1 for row in rows if not row["ok"]) - len(held)
+    print(f"\n공개본 {len(picked)}주 · 올릴 것 {len(upload)}주 · 건너뛴 파일 {skipped}개{note}")
     if not upload:
         print("바뀐 주가 없어 올릴 것이 없습니다.")
-        log(f"바뀐 주 없음 · 공개본 {len(picked)}주 · 건너뜀 {skipped}")
+        log(f"바뀐 주 없음 · 공개본 {len(picked)}주 · 건너뜀 {skipped}{note}")
         return 0
     if args.dry_run:
         print("(미리 보기) 올리지 않았습니다.")
@@ -417,8 +498,52 @@ def run(args, interactive):
             return 0
         sha = github.commit(head, tree, upload, commit_message(states, upload))
     print(f"올렸습니다: 커밋 {sha[:7]} · 1~2분 뒤 배포가 끝나면 사이트 '공개 기록' 탭에 보입니다.")
-    log(f"올림 {len(upload)}주({', '.join(name[:-5] for name in sorted(upload))}) · 커밋 {sha[:7]} · 건너뜀 {skipped}")
+    log(f"올림 {len(upload)}주({', '.join(name[:-5] for name in sorted(upload))}) · 커밋 {sha[:7]} · 건너뜀 {skipped}{note}")
     return 0
+
+
+def gather(folder, pattern, rechecks):
+    """collect 결과에서 실패를 가린다 → (파일별 결과, 쓸 결과, 보류된 파일들).
+    보류된 파일이 있으면 RECHECK_WAIT초 뒤 다시 본다(rechecks번까지). 그 뒤에도 보류면 그 주만 빼고 간다.
+    검사에 걸림·읽지 못함·날짜 없음은 전체를 멈추는 실패다(기다리지 않는다)."""
+    words, started, noted = read_words(), time.time(), False
+    for look in range(rechecks + 1):
+        after_source = source_done(started)
+        if after_source and not noted:
+            log(f"원본 작업 직후(표식 source-done) · 저장 뒤 {SETTLE_AFTER_SOURCE}초 지난 파일부터 올림")
+            noted = True
+        elif after_source is False and look == 0:
+            log(f"표식 source-done이 {SOURCE_DONE_MAX_AGE // 60}분 넘게 묵어 무시 · 저장 뒤 {SETTLE // 60}분 지난 파일부터 올림")
+        rows, picked = collect(folder, words, pattern, SETTLE_AFTER_SOURCE if after_source else SETTLE)
+        if not rows:
+            print("엑셀 기록 파일(.xlsx·.xlsm)이 없습니다.")
+            raise PublishError("대상 엑셀 파일이 없습니다. 원본 폴더와 파일 패턴을 확인하세요.")
+        failures = [row for row in rows if not row["ok"] and row["reason"] not in (*LEFT_OUT, "busy")]
+        if failures:
+            report(rows, picked, {})
+            raise PublishError(f"공개본 생성 실패 {len(failures)}개. 이번 업로드를 멈추고 다음 예약에서 재시도합니다.")
+        held = [row for row in rows if row.get("reason") == "busy"]
+        if not held or look == rechecks:
+            return rows, picked, held
+        log(f"보류 {len(held)}개({HELD}) · {RECHECK_WAIT // 60}분 뒤 다시 봄({look + 1}/{rechecks})")
+        WAIT(RECHECK_WAIT)
+
+
+def source_done(started):
+    """원본 작업이 끝나며 쓴 표식(.macro-notes/source-done)이 새것인지 — 실행 시작 5분 전부터 쓰인 것만.
+    기다리는 사이 쓰인 표식도 다음에 볼 때 알아본다(예약 작업은 겹쳐 돌지 않아 그때 온 호출은 버려진다).
+    낡았으면 False, 없으면 None."""
+    try:
+        return (HOME / "source-done").stat().st_mtime >= started - SOURCE_DONE_MAX_AGE
+    except OSError:
+        return None
+
+
+def clear_source_done():
+    try:
+        (HOME / "source-done").unlink()
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":
