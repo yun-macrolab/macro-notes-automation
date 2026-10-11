@@ -3,11 +3,13 @@
 이 사이트는 같은 주소 아래의 다른 화면과 브라우저 저장 공간을 함께 쓴다. 그래서 실제로 나가는 화면 파일
 (web/build.py의 PAGES)에 위험한 줄이 실수로 들어가지 않는지 본다: 글자를 HTML로 넣는 낱말, 바깥에서 싣는 스크립트,
 이 화면의 것이 아닌 저장 이름. 옛 시연 화면(static/app.js·static/index.html)은 배포 목록에 없어야 한다.
+브라우저 안에서 도는 파이썬(배포 폴더의 py/로 싣는 파일)은 브라우저 다리 모듈(PY_BANNED)을 가져오지 않아야 한다.
 
   python -X utf8 -m unittest discover -s web -p "test_*.py"
 
 걸렸을 때: 뜻한 변화면 바로 아래의 표(SOURCES·ALLOW·CALLS)를 고친다. 실패 문구가 파일·낱말·횟수를 알려 준다.
 """
+import ast
 import os
 from pathlib import Path
 import re
@@ -53,6 +55,14 @@ CALLS = {                                                  # 저장 호출의 �
 NAME_HEAD = "macro-notes-viewer"                           # 이 화면의 저장 이름은 모두 이 머리로 시작한다
 NAME_DEFS = (r'const WORDS_KEY = "([^"]*)"', r'const DB = \{ name: "([^"]*)"')
 WORKER = 'new Worker(new URL("web/worker.mjs", location.href)'
+
+# 브라우저 안에서 도는 파이썬 — web/build.py의 main()이 배포 폴더의 py/로 싣고, 작업 스레드(Pyodide)가 그대로 실행한다
+PY_DIR = "engine"                                          # 이 폴더의 *.py 전부와
+PY_MORE = ("web/workbook_view.py", "web/public_record.py")    # 이 파일들. 싣는 파일이 바뀌면 여기도 바꾼다
+PY_RULE = ('    files = sorted(f"%s/{p.name}" for p in (BASE / "%s").glob("*.py")) + [\n        %s]\n'
+           % (PY_DIR, PY_DIR, ", ".join('"%s"' % name for name in PY_MORE)))    # build.py에 이 글자가 그대로 있어야 한다
+PY_BANNED = ("js", "pyodide", "pyodide_js", "pyscript", "micropip")    # 가져오면 안 되는 모듈(맨 앞 이름) — 브라우저 다리
+PY_LOADERS = ("__import__", "import_module")               # 이름을 글자열로 받아 가져오는 함수
 
 
 def read(name):
@@ -176,6 +186,72 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(store_gaps("x.js", "const all = Object.keys(localStorage); sessionStorage[k] = 1;\n"),
                          ["x.js: 호출 꼴이 아닌 저장 공간 사용 2곳"])
         self.assertEqual(store_gaps("x.js", "// localStorage.clear() 는 쓰지 않는다\n"), [])
+
+
+def shipped_python():
+    """브라우저로 싣는 파이썬 파일 — web/build.py의 규칙(PY_RULE)과 같은 목록."""
+    return sorted("%s/%s" % (PY_DIR, p.name) for p in (ROOT / PY_DIR).glob("*.py")) + list(PY_MORE)
+
+
+def py_imports(name, text):
+    """파이썬 소스가 가져오는 모듈 → [(줄, 모듈)]. ast로 읽는다 — 주석·글자열 안의 낱말은 가져오기가 아니다.
+    import a.b, from a.b import c, 그리고 이름을 글자열 상수로 넘기는 __import__("a")·importlib.import_module("a").
+    점으로 시작하는 from(제 꾸러미 안)과 이름이 상수가 아닌 호출은 세지 않는다."""
+    found = []
+    for node in ast.walk(ast.parse(text, name)):
+        if isinstance(node, ast.Import):
+            found += [(node.lineno, alias.name) for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            found.append((node.lineno, node.module))
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", "")) in PY_LOADERS:
+            first = (node.args + [k.value for k in node.keywords if k.arg == "name"])[:1]
+            found += [(node.lineno, a.value) for a in first if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+    return sorted(found)
+
+
+def banned_imports(name, text):
+    """금지 모듈(PY_BANNED)을 가져오는 곳 → 문구 목록(파일·줄·모듈). 맨 앞 이름으로 본다 — json·jsonschema는 js가 아니다."""
+    return ["%s %d째 줄: `%s` 가져옴" % (name, line, module) for line, module in py_imports(name, text)
+            if module.split(".")[0] in PY_BANNED]
+
+
+class PythonTest(unittest.TestCase):
+    def test_shipped_python_imports_no_browser_bridge(self):
+        self.assertEqual(read("web/build.py").count(PY_RULE), 1,
+                         "브라우저로 싣는 파이썬의 규칙(web/build.py의 main, files = …)이 바뀌었다 — 이 파일의 "
+                         "PY_DIR·PY_MORE·PY_RULE을 같은 규칙으로 고쳐, 새로 싣는 파일도 아래 검사를 지나게 한다")
+        names = shipped_python()
+        self.assertGreater(len(names), len(PY_MORE), PY_DIR + "/에서 싣는 파이썬 파일을 찾지 못했다")
+        found = [g for name in names for g in banned_imports(name, read(name))]
+        self.assertEqual(found, [], "브라우저로 싣는 파이썬이 금지 모듈(PY_BANNED)을 가져온다 — 이 파이썬은 브라우저의 작업 스레드 "
+                         "안에서 돌고, 이 모듈들은 거기서 브라우저의 저장 공간·통신에 닿는 길이다. "
+                         "뜻한 변화면 이 파일의 PY_BANNED를 고친다")
+
+    def test_planted_imports_are_caught(self):
+        self.assertEqual(py_imports("x.py", "import a.b as c, d\nfrom e.f import g\nfrom . import h\n"),
+                         [(1, "a.b"), (1, "d"), (2, "e.f")])
+        planted = ('import os, js\n'
+                   'from pyodide import ffi\n'
+                   'from pyodide.ffi import to_js\n'
+                   'import pyodide_js.x as bridge\n'
+                   'def late():\n'
+                   '    import micropip\n'
+                   '    page = __import__("pyscript")\n'
+                   '    return importlib.import_module("pyodide.http"), import_module(name="js")\n')
+        self.assertEqual(banned_imports("x.py", planted),
+                         ["x.py 1째 줄: `js` 가져옴", "x.py 2째 줄: `pyodide` 가져옴", "x.py 3째 줄: `pyodide.ffi` 가져옴",
+                          "x.py 4째 줄: `pyodide_js.x` 가져옴", "x.py 6째 줄: `micropip` 가져옴",
+                          "x.py 7째 줄: `pyscript` 가져옴", "x.py 8째 줄: `js` 가져옴", "x.py 8째 줄: `pyodide.http` 가져옴"])
+        clean = ('"""import js — 글 안의 낱말은 가져오기가 아니다"""\n'
+                 '# from pyodide import ffi\n'
+                 'import importlib, json, jsonschema\n'
+                 'from json import loads\n'
+                 'import mine.js as helper\n'
+                 'js = pyodide = None\n'
+                 'note = "import js; __import__(\'pyodide\'); micropip"\n'
+                 'near = importlib.import_module("json.decoder"), __import__("jsonschema")\n'
+                 'far = importlib.import_module(note)   # 이름이 상수가 아니면 무엇을 가져오는지 알 수 없다\n')
+        self.assertEqual(banned_imports("x.py", clean), [])
 
 
 if __name__ == "__main__":
