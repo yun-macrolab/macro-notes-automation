@@ -5,8 +5,8 @@
     "start": "2026-10-12",
     "end": "2026-10-18"
   },
-  "generated_at": "2026-10-13T08:00:12+00:00",
-  "conclusion": "【금주 결론】 듀레이션 Neutral (-0.10) · 커브 Neutral (-0.20)\n*이번 주 수집된 뉴스 없음",
+  "generated_at": "2026-10-14T04:01:32+00:00",
+  "conclusion": "【금주 결론】 듀레이션 Neutral (+0.00) · 커브 Neutral (+0.00)\n*이번 주 수집된 뉴스 없음",
   "state": {
     "rows": [
       {
@@ -71,8 +71,8 @@
       },
       {
         "label": "수급·글로벌TP",
-        "dur": -1.0,
-        "cur": -1.0,
+        "dur": 0.0,
+        "cur": 0.0,
         "dur_prev": -1.0,
         "cur_prev": -1.0,
         "dur_tag": "",
@@ -116,11 +116,11 @@
       }
     ],
     "dur": {
-      "total": -0.1,
+      "total": 0.0,
       "verdict": "Neutral"
     },
     "cur": {
-      "total": -0.2,
+      "total": 0.0,
       "verdict": "Neutral"
     },
     "confirmed": false,
