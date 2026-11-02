@@ -1,0 +1,170 @@
+{
+  "schema": "macro-notes-public/1",
+  "notice": "개인이 매주 정리한 매크로 기록의 공개본입니다. 투자 판단이나 권유가 아닙니다.",
+  "week": {
+    "start": "2026-11-02",
+    "end": "2026-11-08"
+  },
+  "generated_at": "2026-11-02T07:51:01+00:00",
+  "conclusion": "【금주 결론】 듀레이션 Neutral (+0.00) · 커브 Neutral (+0.00)\n*이번 주 수집된 뉴스 없음",
+  "state": {
+    "rows": [
+      {
+        "label": "펀더멘털·글로벌",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "펀더멘털·국내",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "통화정책·글로벌",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "통화정책·국내",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "수급·글로벌TP",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "수급·국내",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      },
+      {
+        "label": "기술적·포지션",
+        "dur": 0.0,
+        "cur": 0.0,
+        "dur_prev": 0.0,
+        "cur_prev": 0.0,
+        "dur_tag": "",
+        "cur_tag": "",
+        "note": "",
+        "digest": "",
+        "news_dur": null,
+        "news_cur": null,
+        "house": "",
+        "locked": []
+      }
+    ],
+    "dur": {
+      "total": 0.0,
+      "verdict": "Neutral"
+    },
+    "cur": {
+      "total": 0.0,
+      "verdict": "Neutral"
+    },
+    "confirmed": false,
+    "edited_n": 0,
+    "flags": {
+      "regime": null,
+      "rho60": null,
+      "transition": "OFF",
+      "event_on": false,
+      "tp_break": "OFF",
+      "core_cpi_lt3": false,
+      "relax": false
+    }
+  },
+  "divergences": [],
+  "memo": [
+    {
+      "label": "미 10년(ACMY10) 주간 변화 (bp)",
+      "value": ""
+    },
+    {
+      "label": "└ 기대경로(RNY10) 몫 (bp)",
+      "value": ""
+    },
+    {
+      "label": "└ 기간 프리미엄(TP10) 몫 (bp, %)",
+      "value": ""
+    },
+    {
+      "label": "2s10s 중 TP 몫: Δ(TP10−TP02) (bp)",
+      "value": ""
+    },
+    {
+      "label": "2s10s 중 기대경로 몫: Δ(RNY10−RNY02) (bp)",
+      "value": ""
+    },
+    {
+      "label": "지난주 판정과 실제 결과 (국고10년 bp, 3s10s bp)",
+      "value": ""
+    },
+    {
+      "label": "3주 이상 같은 점수인 행의 '이번 주 새 정보' 유무",
+      "value": ""
+    }
+  ],
+  "news": []
+}
