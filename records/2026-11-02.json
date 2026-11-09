@@ -5,7 +5,7 @@
     "start": "2026-11-02",
     "end": "2026-11-08"
   },
-  "generated_at": "2026-11-04T04:02:24+00:00",
+  "generated_at": "2026-11-09T04:01:40+00:00",
   "conclusion": "【금주 결론】 듀레이션 Neutral (+0.10) · 커브 Neutral (+0.20)\n*이번 주 수집된 뉴스 없음",
   "state": {
     "rows": [
@@ -123,7 +123,7 @@
       "total": 0.2,
       "verdict": "Neutral"
     },
-    "confirmed": false,
+    "confirmed": true,
     "edited_n": 0,
     "flags": {
       "regime": null,
